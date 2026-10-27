@@ -1,0 +1,65 @@
+<!-- F2: class behaviour, copy, ROOT round trip, class-version read-back -->
+<bin name="testGenJet" file="testGenJet.cpp">
+  <use name="catch2"/>
+  <use name="root"/>
+  <use name="PhysicsTools/PatGenJet"/>
+  <use name="DataFormats/HepMCCandidate"/>
+  <use name="FWCore/Utilities"/>
+</bin>
+
+<!-- F3: every NanoAOD jet-table expression through StringObjectFunction<pat::GenJet> -->
+<bin name="testGenJetExpressions" file="testGenJetExpressions.cpp">
+  <use name="catch2"/>
+  <use name="PhysicsTools/PatGenJet"/>
+  <use name="CommonTools/Utils"/>
+  <use name="DataFormats/HepMCCandidate"/>
+  <use name="FWCore/Utilities"/>
+</bin>
+
+<!-- F1b: member parity by ROOT reflection of the built dictionary -->
+<test name="testGenJetMemberParity" command="python3 ${LOCALTOP}/src/PhysicsTools/PatGenJet/test/check_member_parity.py"/>
+
+<!-- F1b: the class version and checksum in classes_def.xml match the built dictionary (review F4) -->
+<test name="testGenJetClassVersion" command="edmCheckClassVersion -l ${LOCALTOP}/lib/${SCRAM_ARCH}/libPhysicsToolsPatGenJet.so -x ${LOCALTOP}/src/PhysicsTools/PatGenJet/src/classes_def.xml"/>
+
+<!-- P4: hand-made inputs for the TestProcessor tests (test-only plugin) -->
+<library file="PatGenJetTestInputs.cc" name="testPhysicsToolsPatGenJetInputs">
+  <use name="FWCore/Framework"/>
+  <use name="FWCore/ParameterSet"/>
+  <use name="DataFormats/Common"/>
+  <use name="DataFormats/HepMCCandidate"/>
+  <use name="DataFormats/JetMatching"/>
+  <use name="DataFormats/JetReco"/>
+  <use name="DataFormats/PatCandidates"/>
+  <flags EDM_PLUGIN="1"/>
+</library>
+
+<!-- P4: TestProcessor tests of the three modules -->
+<bin name="testPATGenJetProducer" file="test_catch2_PATGenJetProducer.cc">
+  <use name="catch2"/>
+  <use name="CommonTools/Utils"/>
+  <use name="FWCore/TestProcessor"/>
+  <use name="PhysicsTools/PatGenJet"/>
+  <use name="DataFormats/BTauReco"/>
+</bin>
+<bin name="testPATGenJetSelector" file="test_catch2_PATGenJetSelector.cc">
+  <use name="catch2"/>
+  <use name="FWCore/TestProcessor"/>
+  <use name="PhysicsTools/PatGenJet"/>
+  <use name="DataFormats/BTauReco"/>
+</bin>
+<bin name="testPATGenJetPacker" file="test_catch2_PATGenJetPacker.cc">
+  <use name="catch2"/>
+  <use name="FWCore/TestProcessor"/>
+  <use name="PhysicsTools/PatGenJet"/>
+</bin>
+
+<!-- Configuration and table tests; all offline: no GlobalTag, no conditions, no network -->
+<!-- C1: the cffs load, the tasks expand, every module is built (parameters validated against fillDescriptions) -->
+<test name="testPatGenJetCffLoad" command="cmsRun ${LOCALTOP}/src/PhysicsTools/PatGenJet/test/test_cff_load_cfg.py"/>
+<!-- C0 + C1 + C2 + C3 on the 20-event Pythia sample: chain, tool, tables against today's gen tables -->
+<test name="testPatGenJetChain" command="bash ${LOCALTOP}/src/PhysicsTools/PatGenJet/test/run_chain_test.sh"/>
+<!-- C3: every Jet/FatJet/SubJet column exists in the matching PatGen table (same name/type/precision, documented changes only) -->
+<test name="testPatGenJetColumns" command="bash ${LOCALTOP}/src/PhysicsTools/PatGenJet/test/run_columns_test.sh"/>
+<!-- C2 + C4: standard MiniAOD and NANO configurations with and without the imports / customisations -->
+<test name="testPatGenJetExpansion" command="python3 ${LOCALTOP}/src/PhysicsTools/PatGenJet/test/check_expansion.py ."/>
