@@ -1,0 +1,51 @@
+<lcgdict>
+ <selection>
+  <!-- pat::GenJet; entries follow the pat::Jet ones in
+       DataFormats/PatCandidates/src/classes_def_objects.xml -->
+  <class name="pat::PATObject<reco::io_v1::GenJet>" />
+
+  <class name="pat::io_v1::GenJet" ClassVersion="3">
+   <version ClassVersion="3" checksum="1235940965"/>
+   <field name="daughtersTemp_" transient="true"/>
+   <field name="caloTowersTemp_" transient="true"/>
+   <field name="pfCandidatesTemp_" transient="true"/>
+  </class>
+  <ioread sourceClass = "pat::io_v1::GenJet" version="[1-]" targetClass="pat::io_v1::GenJet" source="" target="caloTowersTemp_">
+    <![CDATA[caloTowersTemp_.reset();]]>
+  </ioread>
+  <ioread sourceClass = "pat::io_v1::GenJet" version="[1-]" targetClass="pat::io_v1::GenJet" source="" target="pfCandidatesTemp_">
+    <![CDATA[pfCandidatesTemp_.reset();]]>
+  </ioread>
+  <ioread sourceClass = "pat::io_v1::GenJet" version="[1-]" targetClass="pat::io_v1::GenJet" source="" target="daughtersTemp_">
+    <![CDATA[daughtersTemp_.reset();]]>
+  </ioread>
+
+  <!-- collections -->
+  <class name="std::vector<pat::io_v1::GenJet>" />
+  <class name="std::vector<pat::io_v1::GenJet>::const_iterator" />
+  <class name="edm::Wrapper<std::vector<pat::io_v1::GenJet> >" />
+
+  <!-- Ptr and subjet collections -->
+  <class name="edm::Ptr<pat::io_v1::GenJet>" />
+  <class name="std::vector<edm::Ptr<pat::io_v1::GenJet> >" />
+  <class name="std::vector< std::vector<edm::Ptr<pat::io_v1::GenJet> > >" />
+  <class name="edm::Wrapper< std::vector<edm::Ptr<pat::io_v1::GenJet> > >" />
+  <class name="edm::Wrapper< std::vector< std::vector<edm::Ptr<pat::io_v1::GenJet> > > >" />
+
+  <!-- Ref, RefVector, RefProd -->
+  <class name="pat::GenJetRef" />
+  <class name="pat::GenJetRefVector" />
+  <class name="edm::Wrapper<pat::GenJetRefVector>" />
+  <class name="edm::RefProd<std::vector<pat::io_v1::GenJet> >" />
+  <class name="edm::reftobase::Holder<reco::io_v1::Candidate, pat::GenJetRef>" />
+  <class name="edm::reftobase::RefHolder<pat::GenJetRef>" />
+
+  <!-- self link (member genJetFwdRef_, /18) -->
+  <class name="edm::FwdRef<std::vector<pat::io_v1::GenJet>,pat::io_v1::GenJet,edm::refhelper::FindUsingAdvance<std::vector<pat::io_v1::GenJet>,pat::io_v1::GenJet> >" />
+  <class name="edm::refhelper::FindUsingAdvance<std::vector<pat::io_v1::GenJet>,pat::io_v1::GenJet>" />
+
+  <!-- old -> new association (selector, packer) -->
+  <class name="edm::Association<std::vector<pat::io_v1::GenJet> >" />
+  <class name="edm::Wrapper<edm::Association<std::vector<pat::io_v1::GenJet> > >" />
+ </selection>
+</lcgdict>

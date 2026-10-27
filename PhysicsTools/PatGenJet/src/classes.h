@@ -1,0 +1,7 @@
+#include "DataFormats/Common/interface/Wrapper.h"
+#include "DataFormats/Common/interface/Association.h"
+#include "DataFormats/Common/interface/RefProd.h"
+#include "DataFormats/Common/interface/RefToBase.h"
+#include "DataFormats/Common/interface/FwdRef.h"
+#include "DataFormats/Common/interface/Ptr.h"
+#include "PhysicsTools/PatGenJet/interface/GenJet.h"

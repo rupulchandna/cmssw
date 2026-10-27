@@ -1,0 +1,27 @@
+<!-- producer, selector, substructure packer, NanoAOD table plugin -->
+<library file="PATGenJetProducer.cc,GenJetTruthTagger.cc,PATGenJetSelector.cc,PATGenJetSubstructurePacker.cc" name="PhysicsToolsPatGenJetPlugins">
+  <use name="PhysicsTools/PatGenJet"/>
+  <use name="FWCore/Framework"/>
+  <use name="FWCore/ParameterSet"/>
+  <use name="FWCore/MessageLogger"/>
+  <use name="FWCore/Utilities"/>
+  <use name="DataFormats/Common"/>
+  <use name="DataFormats/Candidate"/>
+  <use name="DataFormats/BTauReco"/>
+  <use name="DataFormats/HepMCCandidate"/>
+  <use name="DataFormats/JetMatching"/>
+  <use name="DataFormats/JetReco"/>
+  <use name="DataFormats/Math"/>
+  <use name="DataFormats/PatCandidates"/>
+  <use name="CommonTools/Utils"/>
+  <use name="CommonTools/CandAlgos"/>
+  <use name="PhysicsTools/PatAlgos"/>
+  <flags EDM_PLUGIN="1"/>
+</library>
+<library file="PATGenJetTablePlugins.cc" name="PhysicsToolsPatGenJetTablePlugins">
+  <use name="PhysicsTools/PatGenJet"/>
+  <use name="PhysicsTools/NanoAOD"/>
+  <use name="DataFormats/NanoAOD"/>
+  <use name="CommonTools/Utils"/>
+  <flags EDM_PLUGIN="1"/>
+</library>
