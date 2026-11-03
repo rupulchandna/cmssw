@@ -3,8 +3,8 @@
 
 Uses ROOT/cling reflection of the built dictionaries (no text parsing).
 pat::GenJet keeps the pat::Jet interface except for the members that have no generator meaning:
-  (a) every member in REMOVED (b tagging, calo tower / PF / JPT specifics, flavour, jet ID, self link,
-      HF/HO and calo-tower quantities, ...) must not be declared by pat::io_v1::GenJet;
+  (a) every member in REMOVED (b tagging, calo tower / PF / JPT specifics, flavour, jet ID, self link, associated tracks,
+      HF/HO quantities incl. HF multiplicities, calo-tower quantities, ...) must not be declared by pat::io_v1::GenJet;
   (b) every other public member name of pat::io_v1::Jet and of PATObject<reco::io_v1::Jet> must exist
       as a public member (declared or inherited) of pat::io_v1::GenJet (the "kept" set).
       Constructor/destructor names are mapped Jet -> GenJet. The only allowed exception
@@ -89,6 +89,7 @@ REMOVED = {
     "elecsOutVertexInCalo", "elecMultiplicity",
     # HF and HO energies
     "HFHadronEnergy", "HFHadronEnergyFraction", "HFEMEnergy", "HFEMEnergyFraction", "hoEnergy", "hoEnergyFraction",
+    "HFHadronMultiplicity", "HFEMMultiplicity", "associatedTracks", "setAssociatedTracks",
 }
 # New on pat::GenJet: the generator constituents, as pat::Jet has the PF candidates.
 ADDED = {"setGenCandidates", "genCandidates", "genCandidatesFwdPtr", "updateFwdGenCandidateFwdPtr"}

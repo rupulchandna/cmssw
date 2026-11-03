@@ -7,7 +7,8 @@
 // (DataFormats/PatCandidates/interface/Jet.h, CMSSW_20_1_0_pre3) that make sense for generator jets.
 // Not provided (no generator meaning): b tagging and tag infos, jet ID, calo/JPT/PF specifics and the
 // jet-type queries, calorimeter, HF/HO and JPT track quantities, calo-tower and PF-candidate constituents,
-// jet flavour (available from the JetFlavourInfoMatchingCollection of the generator jets).
+// associated tracks, HF multiplicities, jet flavour (available from the JetFlavourInfoMatchingCollection of the
+// generator jets).
 // Behaviour on missing data:
 //   - JEC: factor 1 at every level, correctedJet/correctedP4 return the jet itself
 //   - groomedMass -1, missing subjet collections empty
@@ -26,7 +27,6 @@
 #include "DataFormats/JetReco/interface/GenJetCollection.h"
 #include "DataFormats/HepMCCandidate/interface/GenParticle.h"
 #include "DataFormats/HepMCCandidate/interface/GenParticleFwd.h"
-#include "DataFormats/TrackReco/interface/TrackFwd.h"
 #include "DataFormats/Common/interface/Ptr.h"
 #include "DataFormats/Common/interface/Ref.h"
 #include "DataFormats/Common/interface/RefVector.h"
@@ -124,11 +124,9 @@ namespace pat {
       void scaleEnergy(double fScale) override { scaleEnergy(fScale, "Unscaled"); }
       void scaleEnergy(double fScale, const std::string& /*level*/) { setP4(p4() * fScale); }
 
-      // ---------------------------------------------------------------- tracks (copy; never filled)
+      // ---------------------------------------------------------------- jet charge (copy; never filled)
       float jetCharge() const { return jetCharge_; }
-      const reco::TrackRefVector& associatedTracks() const { return associatedTracks_; }
       void setJetCharge(float jetCharge) { jetCharge_ = jetCharge; }
-      void setAssociatedTracks(const reco::TrackRefVector& tracks) { associatedTracks_ = tracks; }
 
       // ---------------------------------------------------------------- embedding setters
       /// generator-particle counterpart of pat::Jet::setPFCandidates (Jet.cc)
@@ -157,8 +155,6 @@ namespace pat {
       /// mapped: photon = neutral EM, electron = charged EM multiplicity (GenJet.h:102-103)
       int photonMultiplicity() const { return neutralEmMultiplicity(); }
       int electronMultiplicity() const { return chargedEmMultiplicity(); }
-      int HFHadronMultiplicity() const { return 0; }
-      int HFEMMultiplicity() const { return 0; }
       /// mapped: m_MuonEnergy
       float chargedMuEnergy() const { return muonEnergy(); }
       float chargedMuEnergyFraction() const { return chargedMuEnergy() / energy(); }
@@ -229,9 +225,8 @@ namespace pat {
       // ---- MC
       edm::FwdRef<reco::GenJetCollection> genJetFwdRef_;  // the reco::GenJet the jet was made from
 
-      // ---- tracks
+      // ---- jet charge
       float jetCharge_;
-      reco::TrackRefVector associatedTracks_;
 
     private:
       static double sumMass(pat::GenJetPtrCollection const& sub) {

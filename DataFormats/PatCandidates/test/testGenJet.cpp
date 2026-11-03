@@ -150,12 +150,6 @@ TEST_CASE("2.3 JEC: factor 1, copy, empty lists, ERROR, NONE", "[GenJet][2.3][JE
   CHECK(1.f - j.jecFactor("Uncorrected") == 0.f);
 }
 
-TEST_CASE("2.3 HF multiplicities 0", "[GenJet][2.3][neutral]") {
-  pat::GenJet j(makeRecoGenJet());
-  CHECK(j.HFHadronMultiplicity() == 0);
-  CHECK(j.HFEMMultiplicity() == 0);
-}
-
 TEST_CASE("2.3 PF-named: inherited 8 equal the Specific", "[GenJet][2.3][PF]") {
   const auto s = makeSpecific();
   pat::GenJet j(makeRecoGenJet());
@@ -396,10 +390,9 @@ TEST_CASE("genCandidates: empty by default, append, forward-else-back, update", 
   }
 }
 
-TEST_CASE("2.3 jetCharge, tracks, genParton", "[GenJet][2.3][jetCharge]") {
+TEST_CASE("2.3 jetCharge, genParton", "[GenJet][2.3][jetCharge]") {
   pat::GenJet j(makeRecoGenJet());
   CHECK(j.jetCharge() == 0.f);
-  CHECK(j.associatedTracks().empty());
   CHECK(j.genParton() == nullptr);
   j.setJetCharge(1.f);
   CHECK(j.jetCharge() == 1.f);
@@ -574,12 +567,12 @@ TEST_CASE("ROOT write/read of std::vector<pat::GenJet>", "[GenJet][io]") {
 TEST_CASE("class version: a file written by this build is read back", "[GenJet][io][version]") {
   TClass* cl = TClass::GetClass("pat::io_v1::GenJet");
   REQUIRE(cl);
-  CHECK(cl->GetClassVersion() == 4);
+  CHECK(cl->GetClassVersion() == 5);
   {
     std::vector<pat::GenJet> subjetStore;
     writeCollection(kVersionFile, makeCollectionForIO(subjetStore));
   }
-  // reopen: the streamer info stored in the file must be version 4 with this build's checksum
+  // reopen: the streamer info stored in the file must be version 5 with this build's checksum
   {
     std::unique_ptr<TFile> f(TFile::Open(kVersionFile, "READ"));
     REQUIRE(f);
@@ -587,7 +580,7 @@ TEST_CASE("class version: a file written by this build is read back", "[GenJet][
     REQUIRE(infos);
     TStreamerInfo* si = dynamic_cast<TStreamerInfo*>(infos->FindObject("pat::io_v1::GenJet"));
     REQUIRE(si);
-    CHECK(si->GetClassVersion() == 4);
+    CHECK(si->GetClassVersion() == 5);
     CHECK(si->GetCheckSum() == cl->GetCheckSum());
   }
   const auto back = readCollection(kVersionFile);
