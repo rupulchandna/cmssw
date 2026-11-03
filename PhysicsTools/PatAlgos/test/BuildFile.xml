@@ -15,7 +15,6 @@
   <use name="FWCore/ParameterSet"/>
   <use name="DataFormats/Common"/>
   <use name="DataFormats/HepMCCandidate"/>
-  <use name="DataFormats/JetMatching"/>
   <use name="DataFormats/JetReco"/>
   <use name="DataFormats/PatCandidates"/>
   <flags EDM_PLUGIN="1"/>
@@ -36,6 +35,7 @@
   <use name="catch2"/>
   <use name="FWCore/TestProcessor"/>
   <use name="DataFormats/PatCandidates"/>
+  <use name="DataFormats/BTauReco"/>
 </bin>
 <test name="testPatGenJetCffLoad" command="cmsRun ${LOCALTOP}/src/PhysicsTools/PatAlgos/test/patGenJet_test_cff_load_cfg.py"/>
 <test name="testPatGenJetChain" command="bash ${LOCALTOP}/src/PhysicsTools/PatAlgos/test/patGenJet_run_chain_test.sh"/>

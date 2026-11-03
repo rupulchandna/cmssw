@@ -8,7 +8,15 @@
 //   ""        edm::Association<std::vector<pat::PackedGenParticle>>  gen k -> packed kGenToPacked[k]
 //                                                                  (gen 8 and gen 9 both -> packed 0)
 //   "jets"    std::vector<reco::GenJet>   4 jets, pt 30, 80, 50, 12 (NOT pt-sorted unless sortJets)
-//   "flavour" reco::JetFlavourInfoMatchingCollection keyed to "jets"
+//   "fwdjets" std::vector<reco::GenJet>   4 jets, pt 50, 30, 80, 12 (targets of the genJetForwardMap)
+//   "jetmap"  edm::Association<std::vector<reco::GenJet>> "jets" -> "fwdjets": jet 80 -> fwd 2, jet 50 -> fwd 0,
+//                                                         jet 30 -> fwd 1, jet 12 -> fwd 3
+//   "stage1"  std::vector<reco::GenParticle>   copies of the gens {1, 5, 8, 3, 0, 7, 2}, then all other gens in order
+//   "stage2"  std::vector<reco::GenParticle>   copies of the stage1 entries {0, 1, 3, 4, 5}, then all others in order
+//   "map1"    edm::Association<std::vector<reco::GenParticle>> gens -> stage1
+//   "map2"    edm::Association<std::vector<reco::GenParticle>> stage1 -> stage2
+// Option dropPartners (untracked bool, default False): jet 12 has no partner in "jetmap", and the entries after the
+// lists above are not in stage1 / stage2: gens 4, 6, 9 (and 10) have no partner in map1, stage1 entries 2 and 6 none in map2.
 //   "tau1"    edm::ValueMap<float> keyed to "jets": 0.1 * (jet number + 1)
 //   "nconst"  edm::ValueMap<int>   keyed to "jets": number of daughters
 //   "subjets" std::vector<reco::GenJet>   6 subjets S0..S5, pt 50, 20, 30, 25, 10, 5
@@ -24,7 +32,6 @@
 #include "DataFormats/Common/interface/RefToBaseProd.h"
 #include "DataFormats/Common/interface/ValueMap.h"
 #include "DataFormats/HepMCCandidate/interface/GenParticle.h"
-#include "DataFormats/JetMatching/interface/JetFlavourInfoMatching.h"
 #include "DataFormats/JetReco/interface/BasicJet.h"
 #include "DataFormats/JetReco/interface/GenJet.h"
 #include "DataFormats/PatCandidates/interface/PackedGenParticle.h"
@@ -49,12 +56,23 @@ namespace {
   struct JetDef {
     double pt, eta, phi;
     std::vector<unsigned> gens;  // in pt order, as AOD gen jets
-    int hadronFlavour, partonFlavour;
   };
-  const std::vector<JetDef> kJets = {{30., 1.0, -2.0, {3, 2}, 0, 21},
-                                     {80., 0.0, 1.0, {1, 5, 8, 9}, 5, 5},
-                                     {50., -1.0, 2.0, {7, 0}, 4, -4},
-                                     {12., 2.0, -1.0, {4, 6}, 0, 1}};
+  const std::vector<JetDef> kJets = {
+      {30., 1.0, -2.0, {3, 2}}, {80., 0.0, 1.0, {1, 5, 8, 9}}, {50., -1.0, 2.0, {7, 0}}, {12., 2.0, -1.0, {4, 6}}};
+  // genJetForwardMap: input jet (number in kJets) -> entry of "fwdjets", -1 = no partner
+  constexpr int kJetToFwd[4] = {1, 2, 0, 3};
+  constexpr double kFwdJetPt[4] = {50., 30., 80., 12.};
+  // the gen particle chain: gens -> stage1 -> stage2
+  const std::vector<unsigned> kStage1 = {1, 5, 8, 3, 0, 7, 2};  // gen numbers
+  const std::vector<unsigned> kStage2 = {0, 1, 3, 4, 5};        // stage1 numbers
+  // the list, then (if all) every other number below n in ascending order
+  std::vector<unsigned> extended(std::vector<unsigned> v, unsigned n, bool all) {
+    if (all)
+      for (unsigned k = 0; k < n; ++k)
+        if (std::find(v.begin(), v.end(), k) == v.end())
+          v.push_back(k);
+    return v;
+  }
   struct SubDef {
     double pt, eta, phi;
     unsigned gen;
@@ -72,12 +90,18 @@ class PatGenJetTestInputs : public edm::global::EDProducer<> {
 public:
   explicit PatGenJetTestInputs(edm::ParameterSet const& p)
       : sortJets_(p.getUntrackedParameter<bool>("sortJets", false)),
-        unmapped_(p.getUntrackedParameter<bool>("unmappedConstituent", false)) {
+        unmapped_(p.getUntrackedParameter<bool>("unmappedConstituent", false)),
+        drop_(p.getUntrackedParameter<bool>("dropPartners", false)) {
     produces<std::vector<reco::GenParticle>>();
     produces<std::vector<pat::PackedGenParticle>>("packed");
     produces<edm::Association<std::vector<pat::PackedGenParticle>>>();
     produces<std::vector<reco::GenJet>>("jets");
-    produces<reco::JetFlavourInfoMatchingCollection>("flavour");
+    produces<std::vector<reco::GenJet>>("fwdjets");
+    produces<edm::Association<std::vector<reco::GenJet>>>("jetmap");
+    produces<std::vector<reco::GenParticle>>("stage1");
+    produces<std::vector<reco::GenParticle>>("stage2");
+    produces<edm::Association<std::vector<reco::GenParticle>>>("map1");
+    produces<edm::Association<std::vector<reco::GenParticle>>>("map2");
     produces<edm::ValueMap<float>>("tau1");
     produces<edm::ValueMap<int>>("nconst");
     produces<std::vector<reco::GenJet>>("subjets");
@@ -130,27 +154,63 @@ public:
     }
     auto ohJets = iEvent.put(std::move(jets), "jets");
 
-    auto flavour = std::make_unique<reco::JetFlavourInfoMatchingCollection>(edm::RefToBaseProd<reco::Jet>(ohJets));
     std::vector<float> tau1;
     std::vector<int> nconst;
     for (unsigned i = 0; i < order.size(); ++i) {
       auto const& d = kJets[order[i]];
-      reco::GenParticleRefVector bHadrons;
-      if (d.hadronFlavour == 5)
-        bHadrons.push_back(reco::GenParticleRef(ohGen, 1));
-      flavour->setValue(i,
-                        reco::JetFlavourInfo(bHadrons,
-                                             reco::GenParticleRefVector(),
-                                             reco::GenParticleRefVector(),
-                                             reco::GenParticleRefVector(),
-                                             d.hadronFlavour,
-                                             d.partonFlavour));
       tau1.push_back(0.1f * (order[i] + 1));
       nconst.push_back(d.gens.size());
     }
-    iEvent.put(std::move(flavour), "flavour");
     putValueMap(iEvent, ohJets, tau1, "tau1");
     putValueMap(iEvent, ohJets, nconst, "nconst");
+
+    // ---- forward jets and the association of the input jets to them
+    auto fwdJets = std::make_unique<std::vector<reco::GenJet>>();
+    for (double pt : kFwdJetPt)
+      fwdJets->emplace_back(polar(pt, 0., 0., 5.), reco::Particle::Point(0, 0, 0), reco::GenJet::Specific());
+    auto ohFwdJets = iEvent.put(std::move(fwdJets), "fwdjets");
+    auto jetMap = std::make_unique<edm::Association<std::vector<reco::GenJet>>>(ohFwdJets);
+    {
+      edm::Association<std::vector<reco::GenJet>>::Filler f(*jetMap);
+      std::vector<int> idx;
+      for (unsigned j : order)
+        idx.push_back(drop_ && j == 3 ? -1 : kJetToFwd[j]);
+      f.insert(ohJets, idx.begin(), idx.end());
+      f.fill();
+    }
+    iEvent.put(std::move(jetMap), "jetmap");
+
+    // ---- gen particle chain, copies keep the particle (same pt)
+    const auto list1 = extended(kStage1, nGen, !drop_);
+    const auto list2 = extended(kStage2, list1.size(), !drop_);
+    auto stage1 = std::make_unique<std::vector<reco::GenParticle>>();
+    for (unsigned g : list1)
+      stage1->push_back((*ohGen)[g]);
+    auto stage2 = std::make_unique<std::vector<reco::GenParticle>>();
+    for (unsigned s1 : list2)
+      stage2->push_back((*stage1)[s1]);
+    auto ohStage1 = iEvent.put(std::move(stage1), "stage1");
+    auto ohStage2 = iEvent.put(std::move(stage2), "stage2");
+    {
+      auto map1 = std::make_unique<edm::Association<std::vector<reco::GenParticle>>>(ohStage1);
+      edm::Association<std::vector<reco::GenParticle>>::Filler f(*map1);
+      std::vector<int> idx(nGen, -1);
+      for (unsigned i = 0; i < list1.size(); ++i)
+        idx[list1[i]] = i;
+      f.insert(ohGen, idx.begin(), idx.end());
+      f.fill();
+      iEvent.put(std::move(map1), "map1");
+    }
+    {
+      auto map2 = std::make_unique<edm::Association<std::vector<reco::GenParticle>>>(ohStage2);
+      edm::Association<std::vector<reco::GenParticle>>::Filler f(*map2);
+      std::vector<int> idx(list1.size(), -1);
+      for (unsigned i = 0; i < list2.size(); ++i)
+        idx[list2[i]] = i;
+      f.insert(ohStage1, idx.begin(), idx.end());
+      f.fill();
+      iEvent.put(std::move(map2), "map2");
+    }
 
     // ---- subjets and groomed jets
     auto subjets = std::make_unique<std::vector<reco::GenJet>>();
@@ -189,6 +249,7 @@ private:
 
   const bool sortJets_;
   const bool unmapped_;
+  const bool drop_;
 };
 
 DEFINE_FWK_MODULE(PatGenJetTestInputs);

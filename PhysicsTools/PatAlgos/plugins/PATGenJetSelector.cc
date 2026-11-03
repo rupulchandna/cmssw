@@ -7,8 +7,6 @@
 //:
 //   - same selection parameters: cut, cutLoose, nLoose, filter; the loose counting follows
 //     PATJetSelector and PATGenJetSlimmer (first nLoose jets passing cutLoose, in input order)
-//   - copies the tag infos into its own "tagInfos" product and re-points their forward Ptrs
-//   - sets the self links of its output (every module that writes pat::GenJet does this)
 //   - writes an Association old -> new, as PATGenJetSlimmer does
 //   - slimming options, all off by default: dropSpecific, dropDaughters, dropJetVars
 //     (string cuts as in PATJetSlimmer, default "0") and modifyJets/modifierConfig
@@ -21,9 +19,7 @@
 #include "PhysicsTools/PatAlgos/plugins/PATGenJetPluginHelpers.h"
 
 #include "CommonTools/Utils/interface/StringCutObjectSelector.h"
-#include "DataFormats/BTauReco/interface/BaseTagInfo.h"
 #include "DataFormats/Common/interface/Association.h"
-#include "DataFormats/Common/interface/OwnVector.h"
 #include "DataFormats/Common/interface/View.h"
 #include "FWCore/Framework/interface/Event.h"
 #include "FWCore/Framework/interface/stream/EDFilter.h"
@@ -55,7 +51,6 @@ namespace pat {
         jetModifier_ = std::make_unique<pat::ObjectModifier<pat::GenJet>>(
             params.getParameter<edm::ParameterSet>("modifierConfig"), consumesCollector());
       produces<std::vector<pat::GenJet>>();
-      produces<edm::OwnVector<reco::BaseTagInfo>>("tagInfos");
       produces<edm::Association<std::vector<pat::GenJet>>>();
     }
 
@@ -64,10 +59,6 @@ namespace pat {
       iEvent.getByToken(srcToken_, h_jets);
 
       auto patJets = std::make_unique<std::vector<pat::GenJet>>();
-      auto tagInfosOut = std::make_unique<edm::OwnVector<reco::BaseTagInfo>>();
-      const edm::RefProd<edm::OwnVector<reco::BaseTagInfo>> h_tagInfosOut =
-          iEvent.getRefBeforePut<edm::OwnVector<reco::BaseTagInfo>>("tagInfos");
-      const edm::RefProd<pat::GenJetCollection> h_jetsOut = iEvent.getRefBeforePut<pat::GenJetCollection>();
 
       if (modifyJets_) {
         jetModifier_->setEventContent(iSetup);
@@ -91,14 +82,6 @@ namespace pat {
         patJets->push_back(ijet);
         pat::GenJet& jet = patJets->back();
 
-        // tag infos: copy into the own product, forward Ptr to the copy, back Ptr kept (PATObjectSelector.cc:96, :165)
-        for (size_t k = 0, nk = ijet.tagInfosFwdPtr().size(); k < nk; ++k) {
-          tagInfosOut->push_back(*ijet.tagInfosFwdPtr()[k]);
-          jet.updateFwdTagInfoFwdPtr(
-              k,
-              edm::Ptr<reco::BaseTagInfo>(h_tagInfosOut.id(), tagInfosOut->size() - 1, h_tagInfosOut.productGetter()));
-        }
-
         // slimming: selection above is on the unmodified input jet, as PATJetSlimmer
         if (modifyJets_)
           jetModifier_->modify(jet);
@@ -110,12 +93,8 @@ namespace pat {
           jet.setSpecific(reco::GenJet::Specific());
       }
 
-      // the output links to itself (the input's self links pointed into the input)
-      pat::genjethelpers::setSelfLinks(*patJets, h_jetsOut);
-
       const bool pass = !patJets->empty();
       edm::OrphanHandle<std::vector<pat::GenJet>> oh = iEvent.put(std::move(patJets));
-      iEvent.put(std::move(tagInfosOut), "tagInfos");
 
       auto asso = std::make_unique<edm::Association<std::vector<pat::GenJet>>>(oh);
       edm::Association<std::vector<pat::GenJet>>::Filler filler(*asso);

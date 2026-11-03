@@ -1,10 +1,9 @@
 // PATGenJetProducer with TestProcessor and hand-made inputs.
-// Checks: re-keying (both daughterOrder values), sorting, self links after sort, flavour from a
-// JetFlavourInfoMatchingCollection, user data with stripped postfix,
-// MC switched off for real data.
+// Checks: re-keying (both daughterOrder values), sorting, genJetFwdRef after the sort (with and without
+// genJetForwardMap), embedGenCandidates (with and without genCandidatesForwardMaps), user data with
+// stripped postfix.
 
 #include "DataFormats/PatCandidates/interface/GenJet.h"
-#include "PhysicsTools/PatAlgos/plugins/PATGenJetPluginHelpers.h"
 #include "PhysicsTools/PatAlgos/test/PatGenJetTestCommon.h"
 
 #include "DataFormats/BTauReco/interface/BaseTagInfo.h"
@@ -28,11 +27,13 @@ namespace {
   const std::string kInputs = "genInputsForPatGenJets";
 
   // extra: more arguments of the module; post: python lines run after it (to override a base argument)
-  std::string producerConfig(std::string const& extra, std::string const& post = "", bool unmapped = false) {
-    return header(false, unmapped) +
+  std::string producerConfig(std::string const& extra,
+                             std::string const& post = "",
+                             bool unmapped = false,
+                             bool drop = false) {
+    return header(false, unmapped, drop) +
            "process.toTest = cms.EDProducer('PATGenJetProducer',\n  jetSource = cms.InputTag('" + kInputs +
-           ":jets'),\n  packedGenParticles = cms.InputTag('" + kInputs +
-           "'),\n  JetFlavourInfoSource = cms.InputTag('" + kInputs + ":flavour')" + extra + ")\n" + post +
+           ":jets'),\n  packedGenParticles = cms.InputTag('" + kInputs + "')" + extra + ")\n" + post +
            "process.moduleToTest(process.toTest, cms.Task(process." + kInputs + "))\n";
   }
 
@@ -51,7 +52,7 @@ namespace {
   }
 }  // namespace
 
-TEST_CASE("PATGenJetProducer: sorting, self links, re-keying in pt order, flavour, Specific", "[PATGenJetProducer]") {
+TEST_CASE("PATGenJetProducer: sorting, back refs, re-keying in pt order, Specific", "[PATGenJetProducer]") {
   edm::test::TestProcessor tester(producerConfig(""));
   auto event = tester.test();
   auto const& out = *event.get<std::vector<pat::GenJet>>();
@@ -62,8 +63,12 @@ TEST_CASE("PATGenJetProducer: sorting, self links, re-keying in pt order, flavou
   // the original object is the input jet (input index of the "80" jet is 1)
   CHECK(out[0].originalObjectRef().key() == 1);
 
-  // self links after sort
-  CHECK(patgenjettest::badSelfLinks(out) == 0);
+  // genJetFwdRef after the sort: back ref = the input jet; without genJetForwardMap the forward ref is the same
+  CHECK(patgenjettest::badBackRefs(out) == 0);
+  for (auto const& j : out) {
+    CHECK(j.genJetFwdRef().ref() == j.genJetFwdRef().backRef());
+    CHECK(j.genJet() == &j);
+  }
 
   // re-keying, daughterOrder "pt" (default): gens {1, 5, 8, 9} -> packed {7, 3, 0, 0}; duplicate dropped
   auto const& j80 = out[0];
@@ -80,25 +85,14 @@ TEST_CASE("PATGenJetProducer: sorting, self links, re-keying in pt order, flavou
   CHECK(j80.daughterPtr(2)->pt() == Approx(22.).epsilon(0.01));
   CHECK(keys(jetWithPt(out, 50.)) == std::vector<unsigned>{1, 8});
   CHECK(keys(jetWithPt(out, 12.)) == std::vector<unsigned>{4, 2});
-  // n90 uses the stored order: pt order 40, 30, 22 -> 3 constituents for 90 %
-  CHECK(j80.n90() == 3);
-
-  // flavour (addJetFlavourInfo default True)
-  CHECK(j80.hadronFlavour() == 5);
-  CHECK(j80.partonFlavour() == 5);
-  CHECK(j80.jetFlavourInfo().getbHadrons().size() == 1);
-  CHECK(jetWithPt(out, 50.).hadronFlavour() == 4);
-  CHECK(jetWithPt(out, 50.).partonFlavour() == -4);
-  CHECK(jetWithPt(out, 30.).partonFlavour() == 21);
-  CHECK(jetWithPt(out, 12.).partonFlavour() == 1);
 
   // Specific kept (emEnergy = pt/4, hadEnergy = pt/2 in the inputs)
   CHECK(j80.emEnergy() == Approx(20.));
   CHECK(j80.hadEnergy() == Approx(40.));
   CHECK(j80.jetArea() == Approx(0.5));
 
-  // tagInfos product written (empty here)
-  CHECK(event.get<edm::OwnVector<reco::BaseTagInfo>>("tagInfos")->empty());
+  // the tagInfos product is gone
+  CHECK_THROWS_AS(event.get<edm::OwnVector<reco::BaseTagInfo>>("tagInfos")->size(), cms::Exception);
 }
 
 TEST_CASE("PATGenJetProducer: daughterOrder key reproduces PATGenJetSlimmer order", "[PATGenJetProducer]") {
@@ -108,7 +102,7 @@ TEST_CASE("PATGenJetProducer: daughterOrder key reproduces PATGenJetSlimmer orde
   REQUIRE(out.size() == 4);
   CHECK(keys(out[0]) == std::vector<unsigned>{0, 3, 7});
   CHECK(keys(jetWithPt(out, 12.)) == std::vector<unsigned>{2, 4});
-  CHECK(patgenjettest::badSelfLinks(out) == 0);
+  CHECK(patgenjettest::badBackRefs(out) == 0);
 }
 
 TEST_CASE("PATGenJetProducer: empty packedGenParticles keeps the original constituents", "[PATGenJetProducer]") {
@@ -137,7 +131,7 @@ TEST_CASE("PATGenJetProducer: a constituent without packed partner is dropped", 
     CHECK(keys(j30) == std::vector<unsigned>{5, 6});  // gens {3, 2} -> packed {5, 6}
     // the other jets are untouched
     CHECK(jetWithPt(out, 80.).numberOfDaughters() == 3);
-    CHECK(patgenjettest::badSelfLinks(out) == 0);
+    CHECK(patgenjettest::badBackRefs(out) == 0);
   }
 }
 
@@ -160,41 +154,169 @@ TEST_CASE("PATGenJetProducer: user data with stripped postfix", "[PATGenJetProdu
   }
 }
 
-TEST_CASE("PATGenJetProducer: no flavour input leaves the default flavour", "[PATGenJetProducer]") {
-  edm::test::TestProcessor tester(producerConfig("", "process.toTest.JetFlavourInfoSource = ''\n"));
+namespace {
+  // genJetForwardMap: input jets -> "fwdjets" (pt 80 -> key 2, 50 -> 0, 30 -> 1, 12 -> key 3 or, with dropPartners, none)
+  void checkGenJetForwardMap(bool drop) {
+    edm::test::TestProcessor tester(
+        producerConfig(",\n  genJetForwardMap = cms.InputTag('" + kInputs + ":jetmap')", "", false, drop));
+    auto event = tester.test();
+    auto const& out = *event.get<std::vector<pat::GenJet>>();
+    REQUIRE(out.size() == 4);
+    // the back ref is unchanged by the map (after the pt sort too)
+    CHECK(patgenjettest::badBackRefs(out) == 0);
+    const std::vector<double> fwdPt = {50., 30., 80., 12.};
+    for (auto const& j : out) {
+      auto const& l = j.genJetFwdRef();
+      const int key = patgenjettest::expectedJetFwdKey(j.pt(), drop);
+      INFO("jet pt " << j.pt());
+      if (key >= 0) {
+        REQUIRE(l.ref().isNonnull());
+        CHECK(l.ref().key() == static_cast<unsigned>(key));
+        CHECK(l.ref().id() != l.backRef().id());
+        CHECK(l.ref()->pt() == Approx(fwdPt[key]));  // follows the map to the right jet
+        CHECK(l.backRef()->pt() == Approx(j.pt()));
+      } else {  // no partner: forward = back
+        CHECK(l.backRef().isNonnull());
+        CHECK(l.ref() == l.backRef());
+      }
+    }
+  }
+}  // namespace
+
+TEST_CASE("PATGenJetProducer: genJetForwardMap", "[PATGenJetProducer]") { checkGenJetForwardMap(false); }
+
+TEST_CASE("PATGenJetProducer: genJetForwardMap, jet without partner keeps forward = back", "[PATGenJetProducer]") {
+  checkGenJetForwardMap(true);
+}
+
+namespace {
+  const std::string kTwoMaps = ",\n  embedGenCandidates = cms.bool(True), genCandidatesForwardMaps = cms.VInputTag('" +
+                               kInputs + ":map1', '" + kInputs + ":map2')";
+
+  // the generator particles (input constituents) of the jet, in the order of the input jet
+  std::vector<unsigned> constituentGens(int pt) {
+    if (pt == 80)
+      return {1, 5, 8, 9};
+    if (pt == 50)
+      return {7, 0};
+    if (pt == 30)
+      return {3, 2, 10};  // gen 10 only exists with the unmappedConstituent option
+    return {4, 6};
+  }
+  int ptName(pat::GenJet const& j) { return static_cast<int>(std::lround(j.pt())); }
+  double genPt(unsigned k) { return k < 10 ? patgenjettest::kGenPtExpected[k] : 7.; }
+}  // namespace
+
+TEST_CASE("PATGenJetProducer: embedGenCandidates False stores nothing", "[PATGenJetProducer]") {
+  edm::test::TestProcessor tester(
+      producerConfig(",\n  genCandidatesForwardMaps = cms.VInputTag('" + kInputs + ":map1')"));
   auto event = tester.test();
   auto const& out = *event.get<std::vector<pat::GenJet>>();
   REQUIRE(out.size() == 4);
   for (auto const& j : out) {
-    CHECK(j.hadronFlavour() == 0);
-    CHECK(j.partonFlavour() == 0);
+    CHECK(j.genCandidatesFwdPtr().empty());
+    CHECK(j.genCandidates().empty());
   }
 }
 
-TEST_CASE("PATGenJetProducer: addJetFlavourInfo False copies only the flavours", "[PATGenJetProducer]") {
-  edm::test::TestProcessor tester(producerConfig(",\n  addJetFlavourInfo = cms.bool(False)"));
+TEST_CASE("PATGenJetProducer: embedGenCandidates without maps", "[PATGenJetProducer]") {
+  edm::test::TestProcessor tester(producerConfig(",\n  embedGenCandidates = cms.bool(True)", "", true));
   auto event = tester.test();
   auto const& out = *event.get<std::vector<pat::GenJet>>();
   REQUIRE(out.size() == 4);
-  CHECK(out[0].hadronFlavour() == 5);
-  CHECK(out[0].partonFlavour() == 5);
-  CHECK(out[0].jetFlavourInfo().getbHadrons().empty());
+  for (auto const& j : out) {
+    INFO("jet pt " << j.pt());
+    const auto gens = constituentGens(ptName(j));
+    auto const& fp = j.genCandidatesFwdPtr();
+    // one entry per generator particle of the input jet, in its order, also the one without packed partner
+    REQUIRE(fp.size() == gens.size());
+    REQUIRE(j.genCandidates().size() == gens.size());
+    const edm::ProductID origId = j.originalObject()->sourceCandidatePtr(0).id();  // the genParticles product
+    for (size_t i = 0; i < gens.size(); ++i) {
+      // back = the original constituent, not re-keyed to packed
+      CHECK(fp[i].backPtr().id() == origId);
+      CHECK(fp[i].backPtr().key() == gens[i]);
+      CHECK(fp[i].backPtr()->pt() == Approx(genPt(gens[i])));
+      // no maps: forward = back
+      CHECK(fp[i].ptr() == fp[i].backPtr());
+      CHECK(j.genCandidates()[i] == fp[i].backPtr());
+    }
+    // the daughters are re-keyed to packed, independent of the stored generator particles
+    for (size_t i = 0; i < j.numberOfDaughters(); ++i)
+      CHECK(j.daughterPtr(i).id() != origId);
+  }
 }
 
-TEST_CASE("PATGenJetProducer: MC switched off on real data", "[PATGenJetProducer]") {
-  // TestProcessor always makes MC events (FWCore/TestProcessor/src/TestProcessor.cc:554 isRealData=false),
-  // so the per-event switch used by produce() is tested directly.
-  pat::genjethelpers::MCSwitches on;
-  on.getJetMCFlavour = on.useLegacyJetMCFlavour = on.addJetFlavourInfo = on.addGenPartonMatch = true;
-  const auto data = on.forEvent(true);
-  CHECK_FALSE(data.getJetMCFlavour);
-  CHECK_FALSE(data.useLegacyJetMCFlavour);
-  CHECK_FALSE(data.addJetFlavourInfo);
-  CHECK_FALSE(data.addGenPartonMatch);
-  const auto mc = on.forEvent(false);
-  CHECK(mc.getJetMCFlavour);
-  CHECK(mc.addJetFlavourInfo);
-  CHECK(mc.addGenPartonMatch);
+namespace {
+  // chain map1 -> map2: gens {1, 5, 8, 9} etc. forwarded to stage2; 11 gens (the unmapped option), drop: no partners
+  void checkChain(bool drop) {
+    edm::test::TestProcessor tester(producerConfig(kTwoMaps, "", true, drop));
+    auto event = tester.test();
+    auto const& out = *event.get<std::vector<pat::GenJet>>();
+    REQUIRE(out.size() == 4);
+    unsigned nNull = 0, nFwd = 0;
+    for (auto const& j : out) {
+      INFO("jet pt " << j.pt());
+      const auto gens = constituentGens(ptName(j));
+      auto const& fp = j.genCandidatesFwdPtr();
+      REQUIRE(fp.size() == gens.size());
+      for (size_t i = 0; i < gens.size(); ++i) {
+        INFO("gen " << gens[i]);
+        // back unchanged
+        CHECK(fp[i].backPtr().key() == gens[i]);
+        CHECK(fp[i].backPtr().id() == j.originalObject()->sourceCandidatePtr(0).id());
+        const int key = patgenjettest::expectedStage2Key(gens[i], 11, drop);
+        if (key < 0) {  // no partner in map1 or in map2: forward = back
+          CHECK(fp[i].ptr() == fp[i].backPtr());
+          ++nNull;
+        } else {
+          REQUIRE(fp[i].ptr().isNonnull());
+          CHECK(fp[i].ptr().key() == static_cast<unsigned>(key));
+          CHECK(fp[i].ptr().id() != fp[i].backPtr().id());
+          CHECK(fp[i].ptr()->pt() ==
+                Approx(genPt(gens[i])));  // the copy of the same particle: the whole chain was applied
+          ++nFwd;
+        }
+      }
+    }
+    // jets 80, 50, 30, 12: 4 + 2 + 3 + 2 entries; with dropPartners 2 + 2 + 1 + 0 have a partner after both maps
+    CHECK(nFwd == (drop ? 5u : 11u));
+    CHECK(nNull == (drop ? 6u : 0u));
+  }
+
+  // only map1: gen 8 is kept by map1 and dropped by map2
+  void checkOneMap(bool drop) {
+    edm::test::TestProcessor tester(producerConfig(
+        ",\n  embedGenCandidates = cms.bool(True), genCandidatesForwardMaps = cms.VInputTag('" + kInputs + ":map1')",
+        "",
+        false,
+        drop));
+    auto event = tester.test();
+    auto const& out = *event.get<std::vector<pat::GenJet>>();
+    auto const& fp = jetWithPt(out, 80.).genCandidatesFwdPtr();
+    REQUIRE(fp.size() == 4);  // gens 1, 5, 8, 9
+    CHECK(fp[0].ptr().key() == 0);
+    CHECK(fp[1].ptr().key() == 1);
+    CHECK(fp[2].ptr().key() == 2);  // gen 8 -> stage1 2
+    if (drop)
+      CHECK(fp[3].ptr() == fp[3].backPtr());  // gen 9: no partner in map1: forward = back
+    else
+      CHECK(fp[3].ptr().key() == static_cast<unsigned>(patgenjettest::expectedStage1Key(9, 10)));
+  }
+}  // namespace
+
+TEST_CASE("PATGenJetProducer: embedGenCandidates with a chain of two forward maps", "[PATGenJetProducer]") {
+  checkChain(false);
+}
+
+TEST_CASE("PATGenJetProducer: embedGenCandidates with one forward map", "[PATGenJetProducer]") { checkOneMap(false); }
+
+TEST_CASE("PATGenJetProducer: embedGenCandidates, chain with particles without partner", "[PATGenJetProducer]") {
+  checkChain(true);
+}
+
+TEST_CASE("PATGenJetProducer: embedGenCandidates, one map, particle without partner", "[PATGenJetProducer]") {
+  checkOneMap(true);
 }
 
 TEST_CASE("PATGenJetProducer: configuration checks", "[PATGenJetProducer]") {

@@ -33,14 +33,14 @@ namespace {
   // Access to the transient caches (protected) for the "caches reset after read" check.
   struct Peek : pat::GenJet {
     static bool daughtersCached(const pat::GenJet& j) { return (j.*(&Peek::daughtersTemp_)).isSet(); }
-    static bool towersCached(const pat::GenJet& j) { return (j.*(&Peek::caloTowersTemp_)).isSet(); }
-    static bool pfCached(const pat::GenJet& j) { return (j.*(&Peek::pfCandidatesTemp_)).isSet(); }
+    static bool genCandsCached(const pat::GenJet& j) { return (j.*(&Peek::genCandidatesTemp_)).isSet(); }
   };
 
   const edm::ProductID kConstituentsPID(1, 1);
   const edm::ProductID kGenJetsPID(1, 2);
   const edm::ProductID kSubjetsPID(1, 3);
-  const edm::ProductID kBHadronPID(1, 4);
+  const edm::ProductID kGenPartPID(1, 4);  // generator particles (genCandidates)
+  const edm::ProductID kGenPartFwdPID(1, 5);
 
   reco::GenJet::Specific makeSpecific() {
     reco::GenJet::Specific s;
@@ -86,18 +86,6 @@ namespace {
     return rj;
   }
 
-  bool isZero(const pat::CaloSpecific& s) {
-    return s.mMaxEInEmTowers == 0 && s.mMaxEInHadTowers == 0 && s.mHadEnergyInHB == 0 && s.mEmEnergyInEB == 0 &&
-           s.mTowersArea == 0 && s.mEnergyFractionHadronic == 0;
-  }
-  bool isZero(const pat::PFSpecific& s) {
-    return s.mChargedHadronEnergy == 0 && s.mNeutralHadronEnergy == 0 && s.mPhotonEnergy == 0 &&
-           s.mHFHadronEnergy == 0 && s.mChargedMultiplicity == 0 && s.mHOEnergy == 0;
-  }
-  bool isZero(const pat::JPTSpecific& s) {
-    return s.mResponseOfChargedWithEff == 0 && s.mChargedHadronEnergy == 0 && s.pionsInVertexInCalo.empty() &&
-           s.elecsOutVertexInCalo.empty();
-  }
 }  // namespace
 
 // --------------------------------------------------------------------------------------------------
@@ -131,16 +119,6 @@ TEST_CASE("construction from reco::GenJet keeps kinematics and Specific", "[GenJ
   }
 }
 
-TEST_CASE("jet type predicates", "[GenJet][type]") {
-  pat::GenJet j(makeRecoGenJet());
-  CHECK_FALSE(j.isCaloJet());
-  CHECK_FALSE(j.isJPTJet());
-  CHECK_FALSE(j.isPFJet());
-  CHECK_FALSE(j.hasPFSpecific());
-  CHECK(j.isBasicJet());
-  CHECK(j.isJet());
-}
-
 // ---------------------------------------------------------------- behaviour groups, one block per group
 TEST_CASE("2.3 JEC: factor 1, copy, empty lists, ERROR, NONE", "[GenJet][2.3][JEC]") {
   pat::GenJet j(makeRecoGenJet());
@@ -172,112 +150,10 @@ TEST_CASE("2.3 JEC: factor 1, copy, empty lists, ERROR, NONE", "[GenJet][2.3][JE
   CHECK(1.f - j.jecFactor("Uncorrected") == 0.f);
 }
 
-TEST_CASE("2.3 b tagging: -1000, empty, nullptr, false", "[GenJet][2.3][btag]") {
+TEST_CASE("2.3 HF multiplicities 0", "[GenJet][2.3][neutral]") {
   pat::GenJet j(makeRecoGenJet());
-  CHECK(j.bDiscriminator("pfDeepFlavourJetTags:probb") == -1000.f);
-  CHECK(j.getPairDiscri().empty());
-  CHECK(j.tagInfoLabels().empty());
-  CHECK(j.tagInfo("pfImpactParameter") == nullptr);
-  CHECK_FALSE(j.hasTagInfo("pfImpactParameter"));
-  CHECK(j.tagInfoCandIP() == nullptr);
-  CHECK(j.tagInfoTrackIP() == nullptr);
-  CHECK(j.tagInfoCandSoftLepton() == nullptr);
-  CHECK(j.tagInfoSoftLepton() == nullptr);
-  CHECK(j.tagInfoCandSecondaryVertex() == nullptr);
-  CHECK(j.tagInfoSecondaryVertex() == nullptr);
-  CHECK(j.tagInfoBoostedDoubleSV() == nullptr);
-  CHECK(j.tagInfoPixelCluster("x") == nullptr);
-  // stored values behave as in pat::Jet (last added wins)
-  j.addBDiscriminatorPair({"myTagger", 0.25f});
-  j.addBDiscriminatorPair({"myTagger", 0.75f});
-  CHECK(j.bDiscriminator("myTagger") == 0.75f);
-  CHECK(j.bDiscriminator("other") == -1000.f);
-  CHECK(j.getPairDiscri().size() == 2);
-}
-
-TEST_CASE("2.3 specific structs: static all-zero, setters no-op", "[GenJet][2.3][specific]") {
-  pat::GenJet j(makeRecoGenJet());
-  CHECK(isZero(j.caloSpecific()));
-  CHECK(isZero(j.jptSpecific()));
-  CHECK(isZero(j.pfSpecific()));
-  pat::CaloSpecific cs;
-  cs.mMaxEInEmTowers = 7.f;
-  pat::PFSpecific ps;
-  ps.mChargedHadronEnergy = 7.f;
-  pat::JPTSpecific js;
-  js.mResponseOfChargedWithEff = 7.f;
-  j.setCaloSpecific(cs);
-  j.setPFSpecific(ps);
-  j.setJPTSpecific(js);
-  CHECK(isZero(j.caloSpecific()));
-  CHECK(isZero(j.jptSpecific()));
-  CHECK(isZero(j.pfSpecific()));
-  CHECK(j.chargedHadronEnergy() == 40.f);  // the gen value is not touched by the no-op setter
-}
-
-TEST_CASE("2.3 calo, HF and HO energies 0", "[GenJet][2.3][neutral]") {
-  pat::GenJet j(makeRecoGenJet());
-  for (float v : {j.maxEInEmTowers(),
-                  j.maxEInHadTowers(),
-                  j.hadEnergyInHB(),
-                  j.hadEnergyInHO(),
-                  j.hadEnergyInHE(),
-                  j.hadEnergyInHF(),
-                  j.emEnergyInEB(),
-                  j.emEnergyInEE(),
-                  j.emEnergyInHF(),
-                  j.HFHadronEnergy(),
-                  j.HFEMEnergy(),
-                  j.hoEnergy()})
-    CHECK(v == 0.f);
-}
-
-TEST_CASE("2.3 HF/HO fractions, towersArea, HF multiplicities, elecMultiplicity 0", "[GenJet][2.3][neutral]") {
-  pat::GenJet j(makeRecoGenJet());
-  CHECK(j.HFHadronEnergyFraction() == 0.f);
-  CHECK(j.HFEMEnergyFraction() == 0.f);
-  CHECK(j.hoEnergyFraction() == 0.f);
-  CHECK(j.towersArea() == 0.f);
   CHECK(j.HFHadronMultiplicity() == 0);
   CHECK(j.HFEMMultiplicity() == 0);
-  CHECK(j.elecMultiplicity() == 0.f);
-}
-
-TEST_CASE("2.3 JPT track lists empty", "[GenJet][2.3][JPT]") {
-  pat::GenJet j(makeRecoGenJet());
-  CHECK(j.pionsInVertexInCalo().empty());
-  CHECK(j.pionsInVertexOutCalo().empty());
-  CHECK(j.pionsOutVertexInCalo().empty());
-  CHECK(j.muonsInVertexInCalo().empty());
-  CHECK(j.muonsInVertexOutCalo().empty());
-  CHECK(j.muonsOutVertexInCalo().empty());
-  CHECK(j.elecsInVertexInCalo().empty());
-  CHECK(j.elecsInVertexOutCalo().empty());
-  CHECK(j.elecsOutVertexInCalo().empty());
-}
-
-TEST_CASE("2.3 calo/PF constituent getters: null / empty, no throw", "[GenJet][2.3][constituents]") {
-  pat::GenJet j(makeRecoGenJet());  // has 4 GenParticle daughters: pat::Jet would throw "Invalid Constituent"
-  CHECK_NOTHROW(j.getCaloConstituent(0));
-  CHECK(j.getCaloConstituent(0).isNull());
-  CHECK(j.getCaloConstituents().empty());
-  CHECK_NOTHROW(j.getPFConstituent(0));
-  CHECK(j.getPFConstituent(0).isNull());
-  CHECK(j.getPFConstituents().empty());
-  CHECK(j.caloTowersFwdPtr().empty());
-  CHECK(j.pfCandidatesFwdPtr().empty());
-  // generator constituents remain available through reco::GenJet
-  CHECK(j.getGenConstituents().size() == constituents().size());
-}
-
-TEST_CASE("2.3 updateFwd* out of range: no-op", "[GenJet][2.3][fwd]") {
-  pat::GenJet j(makeRecoGenJet());
-  CHECK_NOTHROW(j.updateFwdCaloTowerFwdPtr(3, edm::Ptr<CaloTower>()));
-  CHECK_NOTHROW(j.updateFwdPFCandidateFwdPtr(3, edm::Ptr<reco::PFCandidate>()));
-  CHECK_NOTHROW(j.updateFwdTagInfoFwdPtr(3, edm::Ptr<reco::BaseTagInfo>()));
-  CHECK(j.caloTowersFwdPtr().empty());
-  CHECK(j.pfCandidatesFwdPtr().empty());
-  CHECK(j.tagInfosFwdPtr().empty());
 }
 
 TEST_CASE("2.3 PF-named: inherited 8 equal the Specific", "[GenJet][2.3][PF]") {
@@ -315,18 +191,6 @@ TEST_CASE("2.3 PF-named: fractions and mapped members equal their formulas", "[G
   CHECK(j.electronMultiplicity() == s.m_ChargedEmMultiplicity);
   CHECK(j.chargedMultiplicity() == s.m_ChargedHadronMultiplicity + s.m_ChargedEmMultiplicity + s.m_MuonMultiplicity);
   CHECK(j.neutralMultiplicity() == s.m_NeutralHadronMultiplicity + s.m_NeutralEmMultiplicity);
-  CHECK(j.energyFractionHadronic() == Approx(s.m_HadEnergy / E));
-  CHECK(j.emEnergyFraction() == Approx(s.m_EmEnergy / E));
-}
-
-TEST_CASE("2.3 n90, n60 real", "[GenJet][2.3][nCarrying]") {
-  const reco::GenJet rj = makeRecoGenJet();
-  pat::GenJet j(rj);
-  // constituent energies 50, 30, 15, 5
-  CHECK(j.n90() == rj.nCarrying(0.9));
-  CHECK(j.n60() == rj.nCarrying(0.6));
-  CHECK(j.n90() == 3);
-  CHECK(j.n60() == 2);
 }
 
 TEST_CASE("2.3 subjets: empty collection, groomedMass -1, counters", "[GenJet][2.3][subjets]") {
@@ -371,43 +235,174 @@ TEST_CASE("2.3 subjets: empty collection, groomedMass -1, counters", "[GenJet][2
   }
 }
 
-TEST_CASE("2.3 gen matching: genJet() is the jet, genJetFwdRef self link", "[GenJet][2.3][genJet]") {
+TEST_CASE("2.3 gen matching: genJet() is the jet", "[GenJet][2.3][genJet]") {
   std::vector<pat::GenJet> coll{pat::GenJet(makeRecoGenJet(50.)), pat::GenJet(makeRecoGenJet(40.))};
   // row: genJet() returns this
   CHECK(coll[1].genJet() == &coll[1]);
   CHECK(static_cast<const reco::GenJet*>(&coll[0]) == coll[0].genJet());
-  // row: genJetFwdRef null until the writing module sets it
-  CHECK(coll[1].genJetFwdRef().isNull());
-  CHECK(coll[1].genJetFwdRef().backRef().isNull());
-  // what the producer does: forward and back ref of entry i point to entry i
-  for (size_t i = 0; i < coll.size(); ++i) {
-    pat::GenJetRef self(kGenJetsPID, &coll[i], i);
-    coll[i].setGenJetRef(pat::GenJetFwdRef(self, self));
-  }
-  CHECK(coll[1].genJetFwdRef().backRef().key() == 1);
-  CHECK(coll[1].genJetFwdRef().backRef().id() == kGenJetsPID);
-  CHECK(coll[1].genJetFwdRef().backRef()->pt() == Approx(40.));
-  CHECK(coll[1].genJetFwdRef()->pt() == Approx(40.));
-  // updateFwdGenJetFwdRef keeps the back ref (as pat::Jet)
-  coll[1].updateFwdGenJetFwdRef(pat::GenJetRef(kGenJetsPID, &coll[0], 0));
-  CHECK(coll[1].genJetFwdRef().ref().key() == 0);
-  CHECK(coll[1].genJetFwdRef().backRef().key() == 1);
 }
 
-TEST_CASE("2.3 flavour, jetID, jetCharge, tracks", "[GenJet][2.3][flavour]") {
+TEST_CASE("genJetFwdRef: null, or the reco::GenJet the jet was built from", "[GenJet][genJetFwdRef]") {
+  const reco::GenJet rj = makeRecoGenJet(42.);
+  std::vector<reco::GenJet> rcoll{makeRecoGenJet(10.), rj};
+
+  SECTION("null for default-constructed and for a jet built from a reco::GenJet object") {
+    pat::GenJet def;
+    CHECK(def.genJetFwdRef().isNull());
+    CHECK(def.genJetFwdRef().backRef().isNull());
+    pat::GenJet fromObj(rj);
+    CHECK(fromObj.genJetFwdRef().isNull());
+    CHECK(fromObj.genJetFwdRef().backRef().isNull());
+  }
+
+  SECTION("from edm::Ptr<reco::GenJet>: forward and back ref are the input") {
+    edm::Ptr<reco::GenJet> ptr(kGenJetsPID, &rcoll[1], 1);
+    pat::GenJet j(ptr);
+    REQUIRE(j.genJetFwdRef().isNonnull());
+    CHECK(j.genJetFwdRef().ref().id() == kGenJetsPID);
+    CHECK(j.genJetFwdRef().ref().key() == 1);
+    CHECK(j.genJetFwdRef().backRef().id() == kGenJetsPID);
+    CHECK(j.genJetFwdRef().backRef().key() == 1);
+    CHECK(j.genJetFwdRef()->pt() == Approx(42.));
+  }
+
+  SECTION("from edm::RefToBase<reco::GenJet>: forward and back ref are the input") {
+    edm::OrphanHandle<std::vector<reco::GenJet>> rh(&rcoll, kGenJetsPID);
+    edm::RefToBase<reco::GenJet> rref(edm::Ref<std::vector<reco::GenJet>>(rh, 1));
+    pat::GenJet j(rref);
+    REQUIRE(j.genJetFwdRef().isNonnull());
+    CHECK(j.genJetFwdRef().ref().id() == kGenJetsPID);
+    CHECK(j.genJetFwdRef().ref().key() == 1);
+    CHECK(j.genJetFwdRef().backRef().id() == kGenJetsPID);
+    CHECK(j.genJetFwdRef().backRef().key() == 1);
+  }
+
+  SECTION("the pat::GenJet Ptr and RefToBase constructors keep it") {
+    pat::GenJet orig{edm::Ptr<reco::GenJet>(kGenJetsPID, &rcoll[1], 1)};
+    std::vector<pat::GenJet> pcoll{pat::GenJet(makeRecoGenJet(11.)), orig};
+    edm::Ptr<pat::GenJet> pptr(kSubjetsPID, &pcoll[1], 1);
+    pat::GenJet fromPtr(pptr);
+    CHECK(fromPtr.genJetFwdRef().ref().id() == kGenJetsPID);
+    CHECK(fromPtr.genJetFwdRef().ref().key() == 1);
+    CHECK(fromPtr.genJetFwdRef().backRef().id() == kGenJetsPID);
+    CHECK(fromPtr.genJetFwdRef().backRef().key() == 1);
+
+    edm::OrphanHandle<std::vector<pat::GenJet>> ph(&pcoll, kSubjetsPID);
+    edm::RefToBase<pat::GenJet> pref(edm::Ref<std::vector<pat::GenJet>>(ph, 1));
+    pat::GenJet fromRef(pref);
+    CHECK(fromRef.genJetFwdRef().ref().id() == kGenJetsPID);
+    CHECK(fromRef.genJetFwdRef().ref().key() == 1);
+    CHECK(fromRef.genJetFwdRef().backRef().id() == kGenJetsPID);
+    CHECK(fromRef.genJetFwdRef().backRef().key() == 1);
+    // plain copy as well
+    pat::GenJet copy(orig);
+    CHECK(copy.genJetFwdRef().backRef().key() == 1);
+  }
+
+  SECTION("updateFwdGenJetFwdRef changes only the forward ref") {
+    pat::GenJet j{edm::Ptr<reco::GenJet>(kGenJetsPID, &rcoll[1], 1)};
+    const edm::ProductID newPID(1, 20);
+    j.updateFwdGenJetFwdRef(reco::GenJetRef(newPID, &rcoll[0], 0));
+    CHECK(j.genJetFwdRef().ref().id() == newPID);
+    CHECK(j.genJetFwdRef().ref().key() == 0);
+    CHECK(j.genJetFwdRef().backRef().id() == kGenJetsPID);
+    CHECK(j.genJetFwdRef().backRef().key() == 1);
+  }
+}
+
+TEST_CASE("genCandidates: empty by default, append, forward-else-back, update", "[GenJet][genCandidates]") {
+  // generator particles that the (transient) Ptrs point to
+  std::vector<reco::GenParticle> backs(3), fwds(3);
+  auto back = [&](size_t i) { return reco::GenParticlePtr(kGenPartPID, &backs[i], i); };
+  auto fwd = [&](size_t i) { return reco::GenParticlePtr(kGenPartFwdPID, &fwds[i], i); };
+  // non-null Ptr to a product that is not there (no pointer to it, no product getter): isAvailable() is false
+  auto unavailable = [&](size_t i) {
+    return reco::GenParticlePtr(kGenPartFwdPID, static_cast<const reco::GenParticle*>(nullptr), i);
+  };
+
   pat::GenJet j(makeRecoGenJet());
-  CHECK(j.partonFlavour() == 0);
-  CHECK(j.hadronFlavour() == 0);
-  CHECK(j.jetFlavourInfo().getbHadrons().empty());
-  j.setPartonFlavour(-4);
-  j.setHadronFlavour(4);
-  CHECK(j.partonFlavour() == -4);
-  CHECK(j.hadronFlavour() == 4);
-  CHECK(j.jetID().fHPD == 0.f);
-  CHECK(j.jetID().n90Hits == 0);
+  CHECK(j.genCandidates().empty());
+  CHECK(j.genCandidatesFwdPtr().empty());
+  // out of range on an empty jet: no-op, no throw
+  CHECK_NOTHROW(j.updateFwdGenCandidateFwdPtr(0, fwd(0)));
+  CHECK(j.genCandidatesFwdPtr().empty());
+
+  SECTION("setGenCandidates appends and resets the cache") {
+    reco::GenParticleFwdPtrVector first{reco::GenParticleFwdPtr(fwd(0), back(0)),
+                                        reco::GenParticleFwdPtr(fwd(1), back(1))};
+    j.setGenCandidates(first);
+    REQUIRE(j.genCandidatesFwdPtr().size() == 2);
+    REQUIRE(j.genCandidates().size() == 2);
+    REQUIRE(Peek::genCandsCached(j));
+    j.setGenCandidates(reco::GenParticleFwdPtrVector{reco::GenParticleFwdPtr(fwd(2), back(2))});
+    CHECK_FALSE(Peek::genCandsCached(j));
+    REQUIRE(j.genCandidatesFwdPtr().size() == 3);
+    CHECK(j.genCandidatesFwdPtr()[2].backPtr().key() == 2);
+    CHECK(j.genCandidates().size() == 3);
+    // the daughters (generator constituents) are unaffected
+    CHECK(j.numberOfDaughters() == constituents().size());
+  }
+
+  SECTION("genCandidates() holds fwdptr.ptr() (as pat::Jet); the FwdPtr itself falls back to the back Ptr") {
+    reco::GenParticleFwdPtrVector v;
+    v.emplace_back(fwd(0), back(0));          // forward available
+    v.emplace_back(unavailable(1), back(1));  // forward not available
+    j.setGenCandidates(v);
+    auto const& c = j.genCandidates();
+    REQUIRE(c.size() == 2);
+    CHECK(c[0].id() == kGenPartFwdPID);
+    CHECK(c[0].get() == &fwds[0]);
+    // the cache copies FwdPtr::ptr(), the forward Ptr, whether or not it is available ...
+    CHECK(c[1].id() == kGenPartFwdPID);
+    CHECK_FALSE(c[1].isAvailable());
+    // ... while dereferencing the stored FwdPtr itself uses the back Ptr if the forward one is unavailable
+    CHECK(j.genCandidatesFwdPtr()[0].get() == &fwds[0]);
+    CHECK(j.genCandidatesFwdPtr()[1].get() == &backs[1]);
+    CHECK(j.genCandidatesFwdPtr()[1].backPtr().id() == kGenPartPID);
+  }
+
+  SECTION("updateFwdGenCandidateFwdPtr in range: forward changed, back kept, cache refreshed") {
+    reco::GenParticleFwdPtrVector v;
+    v.emplace_back(fwd(0), back(0));
+    v.emplace_back(unavailable(1), back(1));
+    j.setGenCandidates(v);
+    REQUIRE_FALSE(j.genCandidates()[1].isAvailable());
+    REQUIRE(Peek::genCandsCached(j));
+
+    const edm::ProductID newPID(1, 21);
+    j.updateFwdGenCandidateFwdPtr(1, reco::GenParticlePtr(newPID, &fwds[2], 2));
+    CHECK_FALSE(Peek::genCandsCached(j));
+    CHECK(j.genCandidatesFwdPtr()[1].ptr().id() == newPID);
+    CHECK(j.genCandidatesFwdPtr()[1].ptr().key() == 2);
+    CHECK(j.genCandidatesFwdPtr()[1].backPtr().id() == kGenPartPID);
+    CHECK(j.genCandidatesFwdPtr()[1].backPtr().key() == 1);
+    CHECK(j.genCandidatesFwdPtr()[0].ptr().id() == kGenPartFwdPID);  // other entry untouched
+    CHECK(j.genCandidates()[1].id() == newPID);                      // rebuilt cache sees the new pointer
+    CHECK(j.genCandidates()[1].get() == &fwds[2]);
+    CHECK(j.genCandidates()[1].isAvailable());
+    CHECK(j.genCandidates()[0].id() == kGenPartFwdPID);
+  }
+
+  SECTION("updateFwdGenCandidateFwdPtr out of range: no-op") {
+    j.setGenCandidates(reco::GenParticleFwdPtrVector{reco::GenParticleFwdPtr(fwd(0), back(0))});
+    REQUIRE(j.genCandidates().size() == 1);
+    REQUIRE(Peek::genCandsCached(j));
+    CHECK_NOTHROW(j.updateFwdGenCandidateFwdPtr(1, fwd(2)));
+    CHECK(Peek::genCandsCached(j));  // untouched, cache not reset
+    REQUIRE(j.genCandidatesFwdPtr().size() == 1);
+    CHECK(j.genCandidatesFwdPtr()[0].ptr().id() == kGenPartFwdPID);
+    CHECK(j.genCandidatesFwdPtr()[0].ptr().key() == 0);
+    CHECK(j.genCandidates().size() == 1);
+  }
+}
+
+TEST_CASE("2.3 jetCharge, tracks, genParton", "[GenJet][2.3][jetCharge]") {
+  pat::GenJet j(makeRecoGenJet());
   CHECK(j.jetCharge() == 0.f);
   CHECK(j.associatedTracks().empty());
   CHECK(j.genParton() == nullptr);
+  j.setJetCharge(1.f);
+  CHECK(j.jetCharge() == 1.f);
 }
 
 TEST_CASE("2.3 generic PAT lookups keep throwing", "[GenJet][2.3][PATObject]") {
@@ -432,11 +427,9 @@ TEST_CASE("scaleEnergy rescales p4 only", "[GenJet][kinematics]") {
 
 TEST_CASE("copy and correctedJet equal the jet", "[GenJet][copy]") {
   pat::GenJet j(makeRecoGenJet());
-  j.setPartonFlavour(5);
-  j.setHadronFlavour(5);
+  j.setJetCharge(2.f);
   j.addUserFloat("NjettinessAK8Puppi:tau1", 0.3f);
   j.addUserInt("nConst", 4);
-  j.addBDiscriminatorPair({"t", 0.5f});
   std::vector<pat::GenJet> subs{pat::GenJet(makeRecoGenJet(30.))};
   j.addSubjets({edm::Ptr<pat::GenJet>(kSubjetsPID, &subs[0], 0)}, "SoftDropPuppi");
 
@@ -446,11 +439,9 @@ TEST_CASE("copy and correctedJet equal the jet", "[GenJet][copy]") {
     CHECK(c.jetArea() == j.jetArea());
     CHECK(c.chargedHadronEnergy() == j.chargedHadronEnergy());
     CHECK(c.neutralEmMultiplicity() == j.neutralEmMultiplicity());
-    CHECK(c.partonFlavour() == 5);
-    CHECK(c.hadronFlavour() == 5);
+    CHECK(c.jetCharge() == 2.f);
     CHECK(c.userFloat("NjettinessAK8Puppi:tau1") == 0.3f);
     CHECK(c.userInt("nConst") == 4);
-    CHECK(c.bDiscriminator("t") == 0.5f);
     CHECK(c.subjets("SoftDropPuppi").size() == 1);
     CHECK(c.groomedMass("SoftDropPuppi") == Approx(j.groomedMass("SoftDropPuppi")));
     CHECK(c.numberOfDaughters() == j.numberOfDaughters());
@@ -471,30 +462,28 @@ namespace {
   const char* const kRoundTripFile = "testGenJet_roundtrip.root";
   const char* const kVersionFile = "testGenJet_classversion.root";
 
-  // the collection is returned by value: the transient cached pointers of the self links are not used
-  // after the move, only (product id, key) are checked
+  // the collection is returned by value: the transient cached pointers of the genJetFwdRef and
+  // genCandidates Ptrs are not used after the move, only (product id, key) are checked
   std::vector<pat::GenJet> makeCollectionForIO(std::vector<pat::GenJet>& subjetStore) {
     subjetStore = {pat::GenJet(makeRecoGenJet(30.)), pat::GenJet(makeRecoGenJet(20.))};
-    std::vector<pat::GenJet> coll{pat::GenJet(makeRecoGenJet(120.)), pat::GenJet(makeRecoGenJet(60.))};
-    reco::GenParticleRefVector bHadrons;
-    static const reco::GenParticle bHadron;
-    bHadrons.push_back(reco::GenParticleRef(kBHadronPID, &bHadron, 3));
-    coll[0].setJetFlavourInfo(reco::JetFlavourInfo(
-        bHadrons, reco::GenParticleRefVector(), reco::GenParticleRefVector(), reco::GenParticleRefVector(), 5, -5));
+    static const std::vector<reco::GenParticle> genParts(4);
+    static const std::vector<reco::GenJet> srcJets{makeRecoGenJet(120.)};
+    // jet 0 is made from a reco::GenJet (genJetFwdRef set), jet 1 from an object (genJetFwdRef null)
+    std::vector<pat::GenJet> coll{pat::GenJet(edm::Ptr<reco::GenJet>(kGenJetsPID, &srcJets[0], 3)),
+                                  pat::GenJet(makeRecoGenJet(60.))};
+    reco::GenParticleFwdPtrVector gc;
+    gc.emplace_back(reco::GenParticlePtr(kGenPartFwdPID, &genParts[2], 2),
+                    reco::GenParticlePtr(kGenPartPID, &genParts[3], 3));
+    coll[0].setGenCandidates(gc);
     coll[0].addSubjets({edm::Ptr<pat::GenJet>(kSubjetsPID, &subjetStore[0], 0),
                         edm::Ptr<pat::GenJet>(kSubjetsPID, &subjetStore[1], 1)},
                        "SoftDropPuppi");
     coll[0].addUserFloat("NjettinessAK8Puppi:tau1", 0.31f);
     coll[0].addUserInt("hfcentralEtaStripSize", 2);
-    coll[1].setPartonFlavour(21);
-    for (size_t i = 0; i < coll.size(); ++i) {
-      pat::GenJetRef self(kGenJetsPID, &coll[i], i);
-      coll[i].setGenJetRef(pat::GenJetFwdRef(self, self));
-    }
+    coll[0].setJetCharge(1.f);
     // fill the transient caches before writing
     (void)coll[0].numberOfDaughters();
-    (void)coll[0].getCaloConstituents();
-    (void)coll[0].getPFConstituents();
+    (void)coll[0].genCandidates();
     return coll;
   }
 
@@ -528,15 +517,14 @@ TEST_CASE("ROOT write/read of std::vector<pat::GenJet>", "[GenJet][io]") {
   std::vector<pat::GenJet> subjetStore;
   const auto coll = makeCollectionForIO(subjetStore);
   REQUIRE(Peek::daughtersCached(coll[0]));
-  REQUIRE(Peek::towersCached(coll[0]));
+  REQUIRE(Peek::genCandsCached(coll[0]));
   writeCollection(kRoundTripFile, coll);
   const auto back = readCollection(kRoundTripFile);
 
   REQUIRE(back.size() == 2);
   // caches are transient and reset by the ioread rules
   CHECK_FALSE(Peek::daughtersCached(back[0]));
-  CHECK_FALSE(Peek::towersCached(back[0]));
-  CHECK_FALSE(Peek::pfCached(back[0]));
+  CHECK_FALSE(Peek::genCandsCached(back[0]));
   for (size_t i = 0; i < 2; ++i) {
     CHECK(back[i].p4() == coll[i].p4());
     CHECK(back[i].vertex().x() == Approx(coll[i].vertex().x()));  // vertex is stored with reduced precision
@@ -552,19 +540,22 @@ TEST_CASE("ROOT write/read of std::vector<pat::GenJet>", "[GenJet][io]") {
     REQUIRE(daus.size() == constituents().size());
     CHECK(daus[2].id() == kConstituentsPID);
     CHECK(daus[2].key() == 2);
-    // self link: id and key
-    CHECK(back[i].genJetFwdRef().backRef().id() == kGenJetsPID);
-    CHECK(back[i].genJetFwdRef().backRef().key() == i);
-    CHECK(back[i].genJetFwdRef().ref().key() == i);
     CHECK(back[i].genJet() == &back[i]);
   }
-  // flavour
-  CHECK(back[0].hadronFlavour() == 5);
-  CHECK(back[0].partonFlavour() == -5);
-  REQUIRE(back[0].jetFlavourInfo().getbHadrons().size() == 1);
-  CHECK(back[0].jetFlavourInfo().getbHadrons()[0].id() == kBHadronPID);
-  CHECK(back[0].jetFlavourInfo().getbHadrons()[0].key() == 3);
-  CHECK(back[1].partonFlavour() == 21);
+  // genJetFwdRef: id and key of forward and back ref; null for the jet made from an object
+  CHECK(back[0].genJetFwdRef().ref().id() == kGenJetsPID);
+  CHECK(back[0].genJetFwdRef().ref().key() == 3);
+  CHECK(back[0].genJetFwdRef().backRef().id() == kGenJetsPID);
+  CHECK(back[0].genJetFwdRef().backRef().key() == 3);
+  CHECK(back[1].genJetFwdRef().isNull());
+  // genCandidates: forward and back Ptr (id, key)
+  REQUIRE(back[0].genCandidatesFwdPtr().size() == 1);
+  CHECK(back[0].genCandidatesFwdPtr()[0].ptr().id() == kGenPartFwdPID);
+  CHECK(back[0].genCandidatesFwdPtr()[0].ptr().key() == 2);
+  CHECK(back[0].genCandidatesFwdPtr()[0].backPtr().id() == kGenPartPID);
+  CHECK(back[0].genCandidatesFwdPtr()[0].backPtr().key() == 3);
+  CHECK(back[1].genCandidatesFwdPtr().empty());
+  CHECK(back[0].jetCharge() == 1.f);
   // subjets with label (id, key)
   CHECK(back[0].subjetCollectionNames() == std::vector<std::string>{"SoftDropPuppi"});
   REQUIRE(back[0].subjets("SoftDropPuppi").size() == 2);
@@ -577,19 +568,18 @@ TEST_CASE("ROOT write/read of std::vector<pat::GenJet>", "[GenJet][io]") {
   CHECK_FALSE(back[1].hasUserFloat("NjettinessAK8Puppi:tau1"));
   // neutral values still neutral after I/O
   CHECK(back[0].jecFactor("Uncorrected") == 1.f);
-  CHECK(back[0].bDiscriminator("x") == -1000.f);
   CHECK(back[1].groomedMass("SoftDropPuppi") == -1.0);
 }
 
 TEST_CASE("class version: a file written by this build is read back", "[GenJet][io][version]") {
   TClass* cl = TClass::GetClass("pat::io_v1::GenJet");
   REQUIRE(cl);
-  CHECK(cl->GetClassVersion() == 3);
+  CHECK(cl->GetClassVersion() == 4);
   {
     std::vector<pat::GenJet> subjetStore;
     writeCollection(kVersionFile, makeCollectionForIO(subjetStore));
   }
-  // reopen: the streamer info stored in the file must be version 3 with this build's checksum
+  // reopen: the streamer info stored in the file must be version 4 with this build's checksum
   {
     std::unique_ptr<TFile> f(TFile::Open(kVersionFile, "READ"));
     REQUIRE(f);
@@ -597,18 +587,18 @@ TEST_CASE("class version: a file written by this build is read back", "[GenJet][
     REQUIRE(infos);
     TStreamerInfo* si = dynamic_cast<TStreamerInfo*>(infos->FindObject("pat::io_v1::GenJet"));
     REQUIRE(si);
-    CHECK(si->GetClassVersion() == 3);
+    CHECK(si->GetClassVersion() == 4);
     CHECK(si->GetCheckSum() == cl->GetCheckSum());
   }
   const auto back = readCollection(kVersionFile);
   REQUIRE(back.size() == 2);
   CHECK(back[0].pt() == Approx(120.));
   CHECK(back[0].subjets("SoftDropPuppi").size() == 2);
-  CHECK(back[0].hadronFlavour() == 5);
+  CHECK(back[0].genJetFwdRef().backRef().key() == 3);
 }
 
 // ==================================================================================================
-// Further behaviour checks: constructors, embedded getters, tag infos, update setters, zero-energy jet
+// Further behaviour checks: constructors, generator constituents, zero-energy jet
 // ==================================================================================================
 
 TEST_CASE("RefToBase constructors (reco::GenJet and pat::GenJet)", "[GenJet][construction]") {
@@ -636,105 +626,6 @@ TEST_CASE("RefToBase constructors (reco::GenJet and pat::GenJet)", "[GenJet][con
   CHECK(fromPatRef.originalObjectRef().key() == 1);
 }
 
-TEST_CASE("2.3 embedded towers / PF candidates returned when set", "[GenJet][2.3][constituents]") {
-  std::vector<CaloTower> towers(2);
-  std::vector<reco::PFCandidate> cands(3);
-  const edm::ProductID towerPID(1, 7), candPID(1, 8);
-  pat::CaloTowerFwdPtrCollection tfp;
-  for (size_t i = 0; i < towers.size(); ++i) {
-    edm::Ptr<CaloTower> p(towerPID, &towers[i], i);
-    tfp.emplace_back(p, p);
-  }
-  pat::PFCandidateFwdPtrCollection cfp;
-  for (size_t i = 0; i < cands.size(); ++i) {
-    edm::Ptr<reco::PFCandidate> p(candPID, &cands[i], i);
-    cfp.emplace_back(p, p);
-  }
-  pat::GenJet j(makeRecoGenJet());
-  j.setCaloTowers(tfp);
-  j.setPFCandidates(cfp);
-  REQUIRE(j.caloTowersFwdPtr().size() == 2);
-  REQUIRE(j.pfCandidatesFwdPtr().size() == 3);
-  CHECK(j.getCaloConstituent(1).key() == 1);
-  CHECK(j.getCaloConstituent(1).get() == &towers[1]);
-  CHECK(j.getCaloConstituent(2).isNull());  // out of range: null, no throw
-  CHECK(j.getCaloConstituents().size() == 2);
-  CHECK(j.getCaloConstituents()[0].get() == &towers[0]);
-  CHECK(j.getPFConstituent(2).get() == &cands[2]);
-  CHECK(j.getPFConstituent(3).isNull());
-  CHECK(j.getPFConstituents().size() == 3);
-  // a second set appends (copy of pat::Jet) and resets the cache
-  REQUIRE(Peek::towersCached(j));
-  j.setCaloTowers(tfp);
-  CHECK_FALSE(Peek::towersCached(j));
-  CHECK(j.getCaloConstituents().size() == 4);
-  // daughters (generator constituents) are unaffected
-  CHECK(j.numberOfDaughters() == constituents().size());
-}
-
-TEST_CASE("2.3 addTagInfo with data", "[GenJet][2.3][btag]") {
-  std::vector<reco::CandIPTagInfo> infos(1);
-  const edm::ProductID infoPID(1, 9);
-  edm::Ptr<reco::BaseTagInfo> p(infoPID, &infos[0], 0);
-  pat::GenJet j(makeRecoGenJet());
-  j.addTagInfo("pfImpactParameterTagInfos", pat::TagInfoFwdPtrCollection::value_type(p, p));
-  REQUIRE(j.tagInfoLabels().size() == 1);
-  CHECK(j.tagInfoLabels()[0] == "pfImpactParameter");  // "TagInfos" stripped, as pat::Jet
-  CHECK(j.hasTagInfo("pfImpactParameter"));
-  CHECK(j.tagInfo("pfImpactParameter") == &infos[0]);
-  CHECK(j.tagInfo("pfImpactParameterTagInfos") == nullptr);
-  CHECK(j.tagInfoCandIP() == &infos[0]);                     // by type
-  CHECK(j.tagInfoCandIP("pfImpactParameter") == &infos[0]);  // by label
-  CHECK(j.tagInfoTrackIP() == nullptr);                      // other type
-  CHECK(j.tagInfoCandSecondaryVertex("pfImpactParameter") == nullptr);
-  CHECK(j.tagInfosFwdPtr().size() == 1);
-}
-
-TEST_CASE("2.3 updateFwd* in range: forward updated, back kept, cache reset", "[GenJet][2.3][fwd]") {
-  std::vector<CaloTower> towers(2), towersNew(2);
-  std::vector<reco::PFCandidate> cands(2), candsNew(2);
-  std::vector<reco::CandIPTagInfo> infos(1), infosNew(1);
-  const edm::ProductID tOld(1, 7), tNew(1, 17), cOld(1, 8), cNew(1, 18), iOld(1, 9), iNew(1, 19);
-  pat::CaloTowerFwdPtrCollection tfp;
-  pat::PFCandidateFwdPtrCollection cfp;
-  for (size_t i = 0; i < 2; ++i) {
-    edm::Ptr<CaloTower> tp(tOld, &towers[i], i);
-    tfp.emplace_back(tp, tp);
-    edm::Ptr<reco::PFCandidate> cp(cOld, &cands[i], i);
-    cfp.emplace_back(cp, cp);
-  }
-  edm::Ptr<reco::BaseTagInfo> ip(iOld, &infos[0], 0);
-  pat::GenJet j(makeRecoGenJet());
-  j.setCaloTowers(tfp);
-  j.setPFCandidates(cfp);
-  j.addTagInfo("ip", pat::TagInfoFwdPtrCollection::value_type(ip, ip));
-
-  // fill the caches, then update: the extra reset (not in pat::Jet) must clear them
-  REQUIRE(j.getCaloConstituents().size() == 2);
-  REQUIRE(j.getPFConstituents().size() == 2);
-  REQUIRE(Peek::towersCached(j));
-  REQUIRE(Peek::pfCached(j));
-
-  j.updateFwdCaloTowerFwdPtr(1, edm::Ptr<CaloTower>(tNew, &towersNew[1], 1));
-  CHECK_FALSE(Peek::towersCached(j));
-  CHECK(j.caloTowersFwdPtr()[1].ptr().id() == tNew);
-  CHECK(j.caloTowersFwdPtr()[1].backPtr().id() == tOld);
-  CHECK(j.caloTowersFwdPtr()[0].ptr().id() == tOld);         // other entry untouched
-  CHECK(j.getCaloConstituents()[1].get() == &towersNew[1]);  // rebuilt cache sees the new pointer
-  CHECK(j.getCaloConstituent(1).get() == &towersNew[1]);
-
-  j.updateFwdPFCandidateFwdPtr(0, edm::Ptr<reco::PFCandidate>(cNew, &candsNew[0], 0));
-  CHECK_FALSE(Peek::pfCached(j));
-  CHECK(j.pfCandidatesFwdPtr()[0].ptr().id() == cNew);
-  CHECK(j.pfCandidatesFwdPtr()[0].backPtr().id() == cOld);
-  CHECK(j.getPFConstituents()[0].get() == &candsNew[0]);
-
-  j.updateFwdTagInfoFwdPtr(0, edm::Ptr<reco::BaseTagInfo>(iNew, &infosNew[0], 0));
-  CHECK(j.tagInfosFwdPtr()[0].ptr().id() == iNew);
-  CHECK(j.tagInfosFwdPtr()[0].backPtr().id() == iOld);
-  CHECK(j.tagInfo("ip") == &infosNew[0]);
-}
-
 TEST_CASE("2.3 getGenConstituent(s): inherited, throws on packed constituents", "[GenJet][2.3][constituents]") {
   // kept as in reco::GenJet; works on GenParticle constituents, throws on packed ones
   std::vector<pat::PackedGenParticle> packed;
@@ -760,8 +651,6 @@ TEST_CASE("2.3 getGenConstituent(s): inherited, throws on packed constituents", 
 TEST_CASE("zero-energy jet: what each fraction returns", "[GenJet][2.3][zeroE]") {
   // A jet with E = 0 and an all-zero Specific (no generator jet should have it).
   // PF-named fractions keep pat::Jet's unguarded body x/energy(): 0/0 = NaN (no new guard, as decided).
-  // Calo-like fractions energyFractionHadronic, emEnergyFraction are guarded: 0.
-  // HF/HO fractions are constants: 0.
   reco::GenJet rj(reco::Particle::LorentzVector(0, 0, 0, 0), reco::Particle::Point(0, 0, 0), reco::GenJet::Specific());
   pat::GenJet j(rj);
   REQUIRE(j.energy() == 0.);
@@ -773,13 +662,6 @@ TEST_CASE("zero-energy jet: what each fraction returns", "[GenJet][2.3][zeroE]")
   CHECK(std::isnan(j.photonEnergyFraction()));
   CHECK(std::isnan(j.electronEnergyFraction()));
   CHECK(std::isnan(j.chargedMuEnergyFraction()));
-  CHECK(j.energyFractionHadronic() == 0.f);
-  CHECK(j.emEnergyFraction() == 0.f);
-  CHECK(j.HFHadronEnergyFraction() == 0.f);
-  CHECK(j.HFEMEnergyFraction() == 0.f);
-  CHECK(j.hoEnergyFraction() == 0.f);
-  CHECK(j.n90() == 0);
-  CHECK(j.n60() == 0);
   CHECK(j.jecFactor(0) == 1.f);
   CHECK(j.groomedMass() == -1.0);
 }

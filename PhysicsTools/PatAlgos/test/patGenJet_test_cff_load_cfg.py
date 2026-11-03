@@ -21,7 +21,7 @@ class Labels:
 v = Labels(); process.patGenJetsTask.visit(v)
 expected = {'NjettinessAK8PuppiForPatGenJets', 'nb1AK8PuppiSoftDropForPatGenJets', 'nb2AK8PuppiSoftDropForPatGenJets',
             'NjettinessAK8SubjetsForPatGenJets', 'nb1AK8PuppiSoftDropSubjetsForPatGenJets', 'nb2AK8PuppiSoftDropSubjetsForPatGenJets',
-            'ak8PFJetsPuppiSoftDropMassForPatGenJets', 'ak8GenJetFlavourInfosForPatGenJets', 'patGenJetsAK4', 'patGenJetsAK8',
+            'ak8PFJetsPuppiSoftDropMassForPatGenJets', 'patGenJetsAK4', 'patGenJetsAK8',
             'selectedPatGenJetsAK8', 'patGenJetsAK8SoftDropSubjets', 'packedPatGenJetsAK8'}
 assert v.l == expected, (v.l ^ expected)
 # nothing else was added to the process by loading (prototypes are imported under underscore names)

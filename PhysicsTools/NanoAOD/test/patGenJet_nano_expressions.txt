@@ -1,12 +1,12 @@
 # NanoAOD jet-table column expressions written to the pat::GenJet tables. Source: expanded cmsDriver NANO MC config,
 # Run3_2026 (CMSSW_20_1_0_pre3), scheduled modules only: jetPuppiTable+jetMCTable (Jet), fatJetTable+fatJetMCTable (FatJet),
 # subJetTable+subjetMCTable (SubJet). Of the 167 Var expressions of these tables, the ones that read bDiscriminator
-# (taggers and regressions: Jet 32, FatJet 48, SubJet 8) and the ones of the columns that are constant for generator
-# jets (Jet 21, FatJet 4, SubJet 2; patGenJetTables_cff.documentedChanges[...]['removed']) are not written and not
-# listed: 52 expressions (Jet 15, FatJet 23, SubJet 14). The 3 FatJet ExtVar columns (lepInAK8JetVars) are not written.
+# (taggers and regressions: Jet 32, FatJet 48, SubJet 8) and the ones of the columns that are not written for generator
+# jets (Jet 24, FatJet 6, SubJet 6: constant columns, flavour and gen-jet index columns;
+# patGenJetTables_cff.documentedChanges[...]['removed']) are not listed: 43 expressions (Jet 12, FatJet 21, SubJet 10).
+# The 3 FatJet ExtVar columns (lepInAK8JetVars) are not written. The FatJet columns guarded by isPFJet() in the reference
+# are listed as the table writes them, without the guard (pat::GenJet has no isPFJet()).
 # format: table|module|column|type|expression   (expression is the last field and may contain '|')
-FatJet|fatJetMCTable|hadronFlavour|uint8|hadronFlavour()
-FatJet|fatJetMCTable|genJetAK8Idx|int16|?genJetFwdRef().backRef().isNonnull() && genJetFwdRef().backRef().pt() > 100.?genJetFwdRef().backRef().key():-1
 FatJet|fatJetTable|pt|float|pt
 FatJet|fatJetTable|phi|float|phi
 FatJet|fatJetTable|eta|float|eta
@@ -21,16 +21,13 @@ FatJet|fatJetTable|msoftdrop|float|groomedMass('SoftDropPuppi')
 FatJet|fatJetTable|subJetIdx1|int16|?nSubjetCollections()>0 && subjets('SoftDropPuppi').size()>0?subjets('SoftDropPuppi')[0].key():-1
 FatJet|fatJetTable|subJetIdx2|int16|?nSubjetCollections()>0 && subjets('SoftDropPuppi').size()>1?subjets('SoftDropPuppi')[1].key():-1
 FatJet|fatJetTable|nConstituents|uint8|numberOfDaughters()
-FatJet|fatJetTable|chMultiplicity|int16|?isPFJet()?chargedMultiplicity():-1
-FatJet|fatJetTable|neMultiplicity|int16|?isPFJet()?neutralMultiplicity():-1
-FatJet|fatJetTable|chHEF|float|?isPFJet()?chargedHadronEnergyFraction():-1
-FatJet|fatJetTable|neHEF|float|?isPFJet()?neutralHadronEnergyFraction():-1
-FatJet|fatJetTable|chEmEF|float|?isPFJet()?chargedEmEnergyFraction():-1
-FatJet|fatJetTable|neEmEF|float|?isPFJet()?neutralEmEnergyFraction():-1
-FatJet|fatJetTable|muEF|float|?isPFJet()?muonEnergyFraction():-1
-Jet|jetMCTable|partonFlavour|int16|partonFlavour()
-Jet|jetMCTable|hadronFlavour|uint8|hadronFlavour()
-Jet|jetMCTable|genJetIdx|int16|?genJetFwdRef().backRef().isNonnull() && genJetFwdRef().backRef().pt() > 10.?genJetFwdRef().backRef().key():-1
+FatJet|fatJetTable|chMultiplicity|int16|chargedMultiplicity()
+FatJet|fatJetTable|neMultiplicity|int16|neutralMultiplicity()
+FatJet|fatJetTable|chHEF|float|chargedHadronEnergyFraction()
+FatJet|fatJetTable|neHEF|float|neutralHadronEnergyFraction()
+FatJet|fatJetTable|chEmEF|float|chargedEmEnergyFraction()
+FatJet|fatJetTable|neEmEF|float|neutralEmEnergyFraction()
+FatJet|fatJetTable|muEF|float|muonEnergyFraction()
 Jet|jetPuppiTable|pt|float|pt
 Jet|jetPuppiTable|phi|float|phi
 Jet|jetPuppiTable|eta|float|eta
@@ -53,7 +50,3 @@ SubJet|subJetTable|tau3|float|userFloat('NjettinessAK8Subjets:tau3')
 SubJet|subJetTable|tau4|float|userFloat('NjettinessAK8Subjets:tau4')
 SubJet|subJetTable|n2b1|float|userFloat('nb1AK8PuppiSoftDropSubjets:ecfN2')
 SubJet|subJetTable|n3b1|float|userFloat('nb1AK8PuppiSoftDropSubjets:ecfN3')
-SubJet|subjetMCTable|nBHadrons|uint8|jetFlavourInfo().getbHadrons().size()
-SubJet|subjetMCTable|nCHadrons|uint8|jetFlavourInfo().getcHadrons().size()
-SubJet|subjetMCTable|hadronFlavour|uint8|hadronFlavour()
-SubJet|subjetMCTable|subGenJetAK8Idx|int16|?genJetFwdRef().backRef().isNonnull()?genJetFwdRef().backRef().key():-1

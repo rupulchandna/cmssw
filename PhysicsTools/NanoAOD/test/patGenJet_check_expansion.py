@@ -114,8 +114,7 @@ plain, cust, keep = run("plain", "mini"), run("mini", "mini"), run("mini_keep", 
 new_keys = sorted(set(cust) - set(plain))
 changed = sorted(k for k in plain if k in cust and plain[k] != cust[k])
 print("mini customisation: %d new objects, changed objects %s" % (len(new_keys), changed))
-expected = ["NjettinessAK8PuppiForPatGenJets", "NjettinessAK8SubjetsForPatGenJets", "ak8GenJetFlavourInfosForPatGenJets",
-            "ak8PFJetsPuppiSoftDropMassForPatGenJets", "nb1AK8PuppiSoftDropForPatGenJets", "nb1AK8PuppiSoftDropSubjetsForPatGenJets",
+expected = ["NjettinessAK8PuppiForPatGenJets", "NjettinessAK8SubjetsForPatGenJets", "ak8PFJetsPuppiSoftDropMassForPatGenJets", "nb1AK8PuppiSoftDropForPatGenJets", "nb1AK8PuppiSoftDropSubjetsForPatGenJets",
             "nb2AK8PuppiSoftDropForPatGenJets", "nb2AK8PuppiSoftDropSubjetsForPatGenJets", "packedPatGenJetsAK8", "patGenJetsAK4",
             "patGenJetsAK8", "patGenJetsAK8SoftDropSubjets", "selectedPatGenJetsAK8"]
 mods = sorted(k.split(":")[1] for k in new_keys if k.startswith(("producer:", "filter:", "analyzer:")))

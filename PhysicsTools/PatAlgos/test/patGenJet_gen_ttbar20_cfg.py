@@ -4,9 +4,10 @@
 #   cmsRun patGenJet_gen_ttbar20_cfg.py output=ttbar20_gen.root
 #
 # Output (everything the pat::GenJet chain needs, nothing else):
-#   genParticles, prunedGenParticles, packedGenParticles (+ its Association to genParticles),
+#   genParticles, prunedGenParticlesWithStatusOne, prunedGenParticles (+ their Associations: the forward maps of
+#   genCandidatesForwardMaps), packedGenParticles (+ its Association to genParticles),
 #   genParticlesForJetsNoNu, ak4GenJetsNoNu, ak8GenJetsNoNu, ak8GenJetsNoNuConstituents, ak8GenJetsNoNuSoftDrop (+SubJets),
-#   gen-jet flavour inputs (selectedHadronsAndPartonsForGenJetsFlavourInfos, generator GenEventInfoProduct).
+#   generator GenEventInfoProduct.
 # The chain is the one MiniAOD runs: PhysicsTools/PatAlgos/python/slimming/genParticles_cff.py (pruned/packed) and
 # applySubstructure_cff.py:34-35 (ak8GenJetsNoNuConstituents, ak8GenJetsNoNuSoftDrop).
 import FWCore.ParameterSet.Config as cms
@@ -49,21 +50,16 @@ process.ak8GenJetsNoNuSoftDrop = ak8GenJetsSoftDrop.clone(src=cms.InputTag("ak8G
 # pruned and packed gen particles as in MiniAOD
 process.load("PhysicsTools.PatAlgos.slimming.genParticles_cff")
 
-# gen-jet flavour inputs (the hadrons/partons AK4 and AK8 gen flavour clustering reads)
-process.load("PhysicsTools.JetMCAlgos.HadronAndPartonSelector_cfi")
-
 process.p = cms.Path(process.generator * process.genParticles
                      * process.genParticlesForJetsNoNu * process.ak4GenJetsNoNu * process.ak8GenJetsNoNu
                      * process.ak8GenJetsNoNuConstituents * process.ak8GenJetsNoNuSoftDrop
-                     * process.prunedGenParticlesWithStatusOne * process.prunedGenParticles * process.packedGenParticles
-                     * process.selectedHadronsAndPartonsForGenJetsFlavourInfos)
+                     * process.prunedGenParticlesWithStatusOne * process.prunedGenParticles * process.packedGenParticles)
 process.out = cms.OutputModule("PoolOutputModule", fileName=cms.untracked.string(options.output),
     outputCommands=cms.untracked.vstring("drop *",
-        "keep *_genParticles_*_*", "keep *_prunedGenParticles_*_*", "keep *_packedGenParticles_*_*",
+        "keep *_genParticles_*_*", "keep *_prunedGenParticlesWithStatusOne_*_*", "keep *_prunedGenParticles_*_*", "keep *_packedGenParticles_*_*",
         "keep *_genParticlesForJetsNoNu_*_*",
         "keep *_ak4GenJetsNoNu_*_*", "keep *_ak8GenJetsNoNu_*_*",
         "keep *_ak8GenJetsNoNuConstituents_*_*", "keep *_ak8GenJetsNoNuSoftDrop_*_*",
-        "keep *_selectedHadronsAndPartonsForGenJetsFlavourInfos_*_*",
         "keep GenEventInfoProduct_generator_*_*"),
     SelectEvents=cms.untracked.PSet(SelectEvents=cms.vstring("p")))
 process.e = cms.EndPath(process.out)

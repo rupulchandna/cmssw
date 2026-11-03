@@ -1,8 +1,8 @@
 // Every expression of the NanoAOD Jet, FatJet and SubJet tables that the pat::GenJet tables write
 // (expanded Run3_2026 MC configuration, list in patGenJet_nano_expressions.txt: no tagger or regression column, none
-// of the columns that are constant for generator jets) evaluates on a pat::GenJet with StringObjectFunction<pat::GenJet>,
+// of the columns that are not written for generator jets) evaluates on a pat::GenJet with StringObjectFunction<pat::GenJet>,
 // with lazyEval false and true, without throwing, when the substructure user floats and the SoftDropPuppi subjets are
-// present and the self links are set. Selected values are checked against the documented behaviour.
+// present. Selected values are checked against the documented behaviour.
 
 #include "DataFormats/PatCandidates/interface/GenJet.h"
 
@@ -64,8 +64,6 @@ namespace {
   }
 
   const edm::ProductID kConstituentsPID(1, 1);
-  const edm::ProductID kAK4PID(1, 2);
-  const edm::ProductID kAK8PID(1, 3);
   const edm::ProductID kSubPID(1, 4);
 
   std::vector<reco::GenParticle> const& constituents() {
@@ -98,18 +96,7 @@ namespace {
     auto const& parts = constituents();
     for (size_t i = 0; i < parts.size(); ++i)
       rj.addDaughter(reco::CandidatePtr(kConstituentsPID, &parts[i], i));
-    pat::GenJet j(rj);
-    j.setPartonFlavour(5);
-    j.setHadronFlavour(5);
-    return j;
-  }
-
-  template <typename C>
-  void setSelfLinks(C& coll, const edm::ProductID& pid) {
-    for (size_t i = 0; i < coll.size(); ++i) {
-      pat::GenJetRef self(pid, &coll[i], i);
-      coll[i].setGenJetRef(pat::GenJetFwdRef(self, self));
-    }
+    return pat::GenJet(rj);
   }
 
   // The three "events": AK4 jets, AK8 jets with SoftDropPuppi subjets, and the subjets.
@@ -135,9 +122,6 @@ namespace {
       // subjets of the first fat jet; the second fat jet has none
       ak8[0].addSubjets({edm::Ptr<pat::GenJet>(kSubPID, &sub[0], 0), edm::Ptr<pat::GenJet>(kSubPID, &sub[1], 1)},
                         "SoftDropPuppi");
-      setSelfLinks(ak4, kAK4PID);
-      setSelfLinks(ak8, kAK8PID);
-      setSelfLinks(sub, kSubPID);
     }
     std::vector<pat::GenJet> const& forTable(const std::string& t) const {
       return t == "Jet" ? ak4 : (t == "FatJet" ? ak8 : sub);
@@ -150,12 +134,12 @@ TEST_CASE("expression list is complete", "[expressions]") {
   std::map<std::string, int> perTable;
   for (auto const& e : exprs)
     ++perTable[e.table];
-  // 167 string expressions in the reco tables, minus 88 tagger/regression and 27 constant columns
-  CHECK(exprs.size() == 52);
-  CHECK(perTable["Jet"] == 15);
-  CHECK(perTable["FatJet"] == 23);
-  CHECK(perTable["SubJet"] == 14);
-  // no tagger or regression column, none of the constant columns
+  // 167 string expressions in the reco tables, minus 88 tagger/regression and 36 constant, flavour and index columns
+  CHECK(exprs.size() == 43);
+  CHECK(perTable["Jet"] == 12);
+  CHECK(perTable["FatJet"] == 21);
+  CHECK(perTable["SubJet"] == 10);
+  // no tagger or regression column, none of the removed columns
   const std::map<std::string, std::set<std::string>> removed = {
       {"Jet",
        {"rawFactor",
@@ -178,9 +162,21 @@ TEST_CASE("expression list is complete", "[expressions]") {
         "muonIdx1",
         "muonIdx2",
         "svIdx1",
-        "svIdx2"}},
-      {"FatJet", {"rawFactor", "area", "hfEmEF", "hfHEF", "lsf3", "electronIdx3SJ", "muonIdx3SJ"}},
-      {"SubJet", {"rawFactor", "area"}}};
+        "svIdx2",
+        "partonFlavour",
+        "hadronFlavour",
+        "genJetIdx"}},
+      {"FatJet",
+       {"rawFactor",
+        "area",
+        "hfEmEF",
+        "hfHEF",
+        "lsf3",
+        "electronIdx3SJ",
+        "muonIdx3SJ",
+        "hadronFlavour",
+        "genJetAK8Idx"}},
+      {"SubJet", {"rawFactor", "area", "nBHadrons", "nCHadrons", "hadronFlavour", "subGenJetAK8Idx"}}};
   for (auto const& e : exprs) {
     INFO(e.table << "_" << e.column << ": " << e.expr);
     CHECK(e.expr.find("bDiscriminator(") == std::string::npos);
@@ -190,7 +186,7 @@ TEST_CASE("expression list is complete", "[expressions]") {
 
 TEST_CASE("all NanoAOD jet expressions evaluate on pat::GenJet", "[expressions]") {
   const auto exprs = readExpressions();
-  REQUIRE(exprs.size() == 52);
+  REQUIRE(exprs.size() == 43);
   const Inputs in;
 
   for (bool lazy : {false, true}) {
@@ -219,19 +215,16 @@ TEST_CASE("all NanoAOD jet expressions evaluate on pat::GenJet", "[expressions]"
       auto const& jet = values["Jet"];
       auto const& fat = values["FatJet"];
       auto const& sub = values["SubJet"];
-      // self links: own row; cuts of the expressions (pt > 10 / pt > 100) respected
-      CHECK(jet.at("genJetIdx") == std::vector<double>{0., 1.});
-      CHECK(fat.at("genJetAK8Idx") == std::vector<double>{0., 1.});
-      CHECK(sub.at("subGenJetAK8Idx") == std::vector<double>{0., 1.});
       // PF-named fractions real on AK4 (Jet table has no isPFJet guard)
       CHECK(jet.at("chHEF")[0] == Approx(in.ak4[0].chargedHadronEnergyFraction()));
       CHECK(jet.at("chHEF")[0] > 0.);
       CHECK(jet.at("chMultiplicity")[0] == 9.);
       CHECK(jet.at("neMultiplicity")[0] == 7.);
-      CHECK(jet.at("partonFlavour")[0] == 5.);
       CHECK(jet.at("nConstituents")[0] == 4.);
-      // FatJet PF columns are guarded with isPFJet(), false for a gen jet: -1 as for pat::Jet
-      CHECK(fat.at("chHEF")[0] == -1.);
+      // FatJet PF columns are written without the isPFJet() guard: the generator values
+      CHECK(fat.at("chHEF")[0] == Approx(in.ak8[0].chargedHadronEnergyFraction()));
+      CHECK(fat.at("chHEF")[0] > 0.);
+      CHECK(fat.at("muEF")[0] == Approx(in.ak8[0].muonEnergyFraction()));
       // subjets and groomed mass (2.6)
       const double sdMass = (in.sub[0].p4() + in.sub[1].p4()).mass();
       CHECK(fat.at("msoftdrop")[0] == Approx(sdMass));
@@ -242,8 +235,6 @@ TEST_CASE("all NanoAOD jet expressions evaluate on pat::GenJet", "[expressions]"
       CHECK(fat.at("n2b1")[0] == Approx(0.2));
       CHECK(sub.at("tau1")[1] == Approx(0.05));
       CHECK(sub.at("n3b1")[0] == Approx(2.0));
-      CHECK(sub.at("hadronFlavour")[0] == 5.);
-      CHECK(sub.at("nBHadrons")[0] == 0.);
       // p4 columns are the gen-jet kinematics
       CHECK(jet.at("pt")[0] == Approx(60.));
       CHECK(fat.at("pt")[0] == Approx(300.));

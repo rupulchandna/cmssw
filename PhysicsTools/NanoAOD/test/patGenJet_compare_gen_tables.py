@@ -3,13 +3,12 @@
 
 Usage:  python3 patGenJet_compare_gen_tables.py ttbar20_nano.root
 
-  PatGenJet        vs GenJet         same rows; pt, eta, phi, mass bitwise; partonFlavour, hadronFlavour, nBHadrons, nCHadrons equal
-  PatGenJetAK8     vs GenJetAK8      same;  flavour differences are REPORTED, not failed (flavour clustered on AOD versus packed
-                                     constituents in the ghost clustering)
+  PatGenJet        vs GenJet         same rows; pt, eta, phi, mass bitwise (no flavour column: pat::GenJet has none)
+  PatGenJetAK8     vs GenJetAK8      same rows; p4 bitwise
   PatSubGenJetAK8  vs SubGenJetAK8   same rows; p4 bitwise
-  index columns    genJetIdx, genJetAK8Idx, subGenJetAK8Idx == row; subJetIdx1/2 index PatSubGenJetAK8 rows whose subjets lie
-                   inside the fat jet cone (dR < 0.8)
+  subJetIdx1/2     index PatSubGenJetAK8 rows whose subjets lie inside the fat jet cone (dR < 0.8)
   the added/changed columns have sane values: genEmEF+genHadEF+genInvisibleEF+genAuxiliaryEF = 1, the real PF fractions are not the -1 of the isPFJet() guard, no NaN in a column that must not have one
+  none of the removed columns (constant, flavour, gen-jet index) is written; the number of branches of each table is printed
   no tagger/regression column and none of the removed constant columns is written
 Exit code 0 if the failing checks all hold.
 """
@@ -35,7 +34,7 @@ def col(name):
     return t[name].array(library="ak")
 
 
-def same_rows(a, b, cols, label, exact=True):
+def same_rows(a, b, cols, label):
     check(ak.all(col("n" + a) == col("n" + b)), "%s: row counts differ" % label)
     nrow = int(ak.sum(col("n" + a)))
     for c in cols:
@@ -45,24 +44,16 @@ def same_rows(a, b, cols, label, exact=True):
             continue
         nd = int(ak.sum(ak.flatten(x != y)))
         if nd:
-            (note if label.endswith("AK8") and c.endswith(("Flavour", "Hadrons")) else fail).append(
-                "%s.%s: %d of %d rows differ" % (label, c, nd, nrow))
+            fail.append("%s.%s: %d of %d rows differ" % (label, c, nd, nrow))
     return nrow
 
 
 p4 = ["pt", "eta", "phi", "mass"]
-fl = ["partonFlavour", "hadronFlavour", "nBHadrons", "nCHadrons"]
-n4 = same_rows("PatGenJet", "GenJet", p4 + fl, "PatGenJet vs GenJet")
-n8 = same_rows("PatGenJetAK8", "GenJetAK8", p4 + fl, "PatGenJetAK8 vs GenJetAK8")
+n4 = same_rows("PatGenJet", "GenJet", p4, "PatGenJet vs GenJet")
+n8 = same_rows("PatGenJetAK8", "GenJetAK8", p4, "PatGenJetAK8 vs GenJetAK8")
 ns = same_rows("PatSubGenJetAK8", "SubGenJetAK8", p4, "PatSubGenJetAK8 vs SubGenJetAK8")
 print("rows compared: PatGenJet %d, PatGenJetAK8 %d, PatSubGenJetAK8 %d" % (n4, n8, ns))
 check(n4 > 0 and n8 > 0 and ns > 0, "an empty table: nothing was compared")
-
-# index columns equal the row
-for tab, c in (("PatGenJet", "genJetIdx"), ("PatGenJetAK8", "genJetAK8Idx"), ("PatSubGenJetAK8", "subGenJetAK8Idx")):
-    idx = col("%s_%s" % (tab, c))
-    row = ak.local_index(idx)
-    check(ak.all(idx == row), "%s.%s != row" % (tab, c))
 
 # subjet links: indices into the PatSubGenJetAK8 rows of the same event, inside the fat jet
 sub_eta, sub_phi = col("PatSubGenJetAK8_eta"), col("PatSubGenJetAK8_phi")
@@ -113,12 +104,20 @@ for c in ("tau1", "tau2", "tau3", "tau4", "mass", "pt"):
 # particleNet_QCD; constant columns: e.g. rawFactor, area, puIdDisc, muonSubtrFactor, lsf3)
 branches = set(t.keys())
 for tab, names in (("PatGenJet", ("btagDeepFlavB", "PNetRegPtRawCorr", "rawFactor", "area", "puIdDisc", "muonSubtrFactor",
-                                  "hfHEF", "nMuons", "svIdx1")),
+                                  "hfHEF", "nMuons", "svIdx1", "partonFlavour", "hadronFlavour", "genJetIdx",
+                                  "nBHadrons", "nCHadrons")),
                    ("PatGenJetAK8", ("globalParT3_Xbb", "particleNet_QCD", "particleNetLegacy_mass", "rawFactor", "area",
-                                     "hfHEF", "lsf3", "muonIdx3SJ")),
-                   ("PatSubGenJetAK8", ("btagDeepFlavB", "UParTAK4RegPtRawCorr", "rawFactor", "area"))):
+                                     "hfHEF", "lsf3", "muonIdx3SJ", "hadronFlavour", "genJetAK8Idx", "partonFlavour",
+                                     "nBHadrons", "nCHadrons")),
+                   ("PatSubGenJetAK8", ("btagDeepFlavB", "UParTAK4RegPtRawCorr", "rawFactor", "area", "nBHadrons", "nCHadrons",
+                                        "hadronFlavour", "subGenJetAK8Idx"))):
     present = [n for n in names if "%s_%s" % (tab, n) in branches]
     check(not present, "%s: removed columns written: %s" % (tab, present))
+
+# number of branches per table (columns + the counter n<Table>)
+for tab in ("PatGenJet", "PatGenJetAK8", "PatSubGenJetAK8"):
+    cols = [b for b in branches if b.startswith(tab + "_")]
+    print("%s: %d branches (%d columns + n%s)" % (tab, len(cols) + 1, len(cols), tab))
 
 for n in note:
     print("REPORTED (expected deviation):", n)

@@ -5,25 +5,22 @@
 //
 // reco::GenJet -> pat::GenJet (built from AOD-level generator jets).
 // Mirrors PhysicsTools/PatAlgos/plugins/PATJetProducer.cc (CMSSW_20_1_0_pre3):
-//   loop over View<reco::GenJet>, build from refAt(idx), fill, add user data, sort by pt,
-//   THEN set the self links, then put.
-// Differences to PATJetProducer: no tower/PF embedding, no gen-jet match (the self
-// link replaces it), no jet ID, no parton-jet match, no tracks, no JEC; new parameters
-// packedGenParticles (constituent re-keying as PATGenJetSlimmer) and daughterOrder.
+//   loop over View<reco::GenJet>, build from refAt(idx), fill, add user data, sort by pt, put.
+// Differences to PATJetProducer: no b tagging, no tower/PF embedding, no gen-jet match (genJetFwdRef points to
+// the input jet itself), no jet ID, no flavour, no parton-jet match, no tracks, no JEC; new parameters
+// packedGenParticles (constituent re-keying as PATGenJetSlimmer), daughterOrder, embedGenCandidates
+// (generator particles of the jet, counterpart of embedPFCandidates) with genCandidatesForwardMaps, and
+// genJetForwardMap.
 //
 #include "DataFormats/PatCandidates/interface/GenJet.h"
 #include "PhysicsTools/PatAlgos/plugins/PATGenJetPluginHelpers.h"
 
 #include "CommonTools/Utils/interface/PtComparator.h"
-#include "DataFormats/BTauReco/interface/BaseTagInfo.h"
 #include "DataFormats/Common/interface/Association.h"
-#include "DataFormats/Common/interface/OwnVector.h"
 #include "DataFormats/Common/interface/RefToPtr.h"
 #include "DataFormats/Common/interface/View.h"
 #include "DataFormats/HepMCCandidate/interface/GenParticle.h"
 #include "DataFormats/HepMCCandidate/interface/GenParticleFwd.h"
-#include "DataFormats/JetMatching/interface/JetFlavourInfoMatching.h"
-#include "DataFormats/JetMatching/interface/JetFlavourMatching.h"
 #include "DataFormats/JetReco/interface/JetFloatAssociation.h"
 #include "DataFormats/PatCandidates/interface/PackedGenParticle.h"
 #include "FWCore/Framework/interface/Event.h"
@@ -62,6 +59,8 @@ namespace pat {
     enum class DaughterOrder { pt, key };
 
     void rekeyDaughters(pat::GenJet& jet, const edm::Association<std::vector<pat::PackedGenParticle>>* gp2pgp) const;
+    reco::GenParticleFwdPtrVector genCandidates(
+        pat::GenJet const& jet, std::vector<const edm::Association<reco::GenParticleCollection>*> const& maps) const;
 
     // inputs
     const edm::EDGetTokenT<edm::View<reco::GenJet>> jetsToken_;
@@ -70,24 +69,19 @@ namespace pat {
     DaughterOrder daughterOrder_;
 
     // MC (switched off per event on real data)
-    pat::genjethelpers::MCSwitches mc_;
+    bool addGenPartonMatch_;
     bool embedGenPartonMatch_;
     edm::EDGetTokenT<edm::Association<reco::GenParticleCollection>> genPartonToken_;
-    edm::EDGetTokenT<reco::JetFlavourMatchingCollection> jetPartonMapToken_;
-    edm::EDGetTokenT<reco::JetFlavourInfoMatchingCollection> jetFlavourInfoToken_;
+
+    // generator particles of the jet and forward links
+    bool embedGenCandidates_;
+    std::vector<edm::EDGetTokenT<edm::Association<reco::GenParticleCollection>>> genCandidatesForwardMapTokens_;
+    bool forwardGenJet_;
+    edm::EDGetTokenT<edm::Association<reco::GenJetCollection>> genJetForwardMapToken_;
 
     // jet charge
     bool addJetCharge_;
     edm::EDGetTokenT<reco::JetFloatAssociation::Container> jetChargeToken_;
-
-    // b tagging
-    bool addBTagInfo_;
-    bool addDiscriminators_;
-    std::vector<edm::EDGetTokenT<reco::JetFloatAssociation::Container>> discriminatorTokens_;
-    std::vector<std::string> discriminatorLabels_;
-    bool addTagInfos_;
-    std::vector<edm::EDGetTokenT<edm::View<reco::BaseTagInfo>>> tagInfoTokens_;
-    std::vector<std::string> tagInfoLabels_;
 
     // generic PAT
     bool addEfficiencies_;
@@ -125,79 +119,31 @@ PATGenJetProducer::PATGenJetProducer(const edm::ParameterSet& iConfig)
     throw edm::Exception(edm::errors::Configuration)
         << "PATGenJetProducer: daughterOrder must be \"pt\" or \"key\", got \"" << order << "\"";
 
-  // ---- MC flavour and parton match (as PATJetProducer.cc:128-148)
-  mc_.getJetMCFlavour = iConfig.getParameter<bool>("getJetMCFlavour");
-  // flavour stays at its default when no flavour input is configured (empty source label)
-  const auto flavourSource = iConfig.getParameter<edm::InputTag>(
-      iConfig.getParameter<bool>("useLegacyJetMCFlavour") ? "JetPartonMapSource" : "JetFlavourInfoSource");
-  if (flavourSource.label().empty()) {
-    // do not switch off silently
-    if (mc_.getJetMCFlavour)
-      edm::LogWarning("PATGenJetProducer")
-          << "getJetMCFlavour is True but "
-          << (iConfig.getParameter<bool>("useLegacyJetMCFlavour") ? "JetPartonMapSource" : "JetFlavourInfoSource")
-          << " is empty: the flavour of the jets is not filled (hadronFlavour = partonFlavour = 0)";
-    mc_.getJetMCFlavour = false;
-  }
-  mc_.useLegacyJetMCFlavour = iConfig.getParameter<bool>("useLegacyJetMCFlavour");
-  mc_.addJetFlavourInfo = (mc_.useLegacyJetMCFlavour ? false : iConfig.getParameter<bool>("addJetFlavourInfo"));
-  if (mc_.getJetMCFlavour && mc_.useLegacyJetMCFlavour)
-    jetPartonMapToken_ =
-        consumes<reco::JetFlavourMatchingCollection>(iConfig.getParameter<edm::InputTag>("JetPartonMapSource"));
-  else if (mc_.getJetMCFlavour && !mc_.useLegacyJetMCFlavour)
-    jetFlavourInfoToken_ =
-        consumes<reco::JetFlavourInfoMatchingCollection>(iConfig.getParameter<edm::InputTag>("JetFlavourInfoSource"));
-  mc_.addGenPartonMatch = iConfig.getParameter<bool>("addGenPartonMatch");
+  // ---- parton match (as PATJetProducer.cc:128-148)
+  addGenPartonMatch_ = iConfig.getParameter<bool>("addGenPartonMatch");
   embedGenPartonMatch_ = iConfig.getParameter<bool>("embedGenPartonMatch");
-  if (mc_.addGenPartonMatch)
+  if (addGenPartonMatch_)
     genPartonToken_ =
         consumes<edm::Association<reco::GenParticleCollection>>(iConfig.getParameter<edm::InputTag>("genPartonMatch"));
+
+  // ---- generator particles of the jet; forward Ptrs through the chain of maps (empty chain: forward = back)
+  embedGenCandidates_ = iConfig.getParameter<bool>("embedGenCandidates");
+  if (embedGenCandidates_)
+    genCandidatesForwardMapTokens_ = edm::vector_transform(
+        iConfig.getParameter<std::vector<edm::InputTag>>("genCandidatesForwardMaps"),
+        [this](edm::InputTag const& tag) { return consumes<edm::Association<reco::GenParticleCollection>>(tag); });
+
+  // ---- forward ref of genJetFwdRef (empty label: forward = back = the input jet)
+  const auto genJetForwardMap = iConfig.getParameter<edm::InputTag>("genJetForwardMap");
+  forwardGenJet_ = !genJetForwardMap.label().empty();
+  if (forwardGenJet_)
+    genJetForwardMapToken_ = consumes<edm::Association<reco::GenJetCollection>>(genJetForwardMap);
 
   // ---- jet charge
   addJetCharge_ = iConfig.getParameter<bool>("addJetCharge");
   if (addJetCharge_)
     jetChargeToken_ =
         consumes<reco::JetFloatAssociation::Container>(iConfig.getParameter<edm::InputTag>("jetChargeSource"));
-
-  // ---- b tagging (as PATJetProducer.cc:155-215)
-  addBTagInfo_ = iConfig.getParameter<bool>("addBTagInfo");
-  addDiscriminators_ = iConfig.getParameter<bool>("addDiscriminators");
-  const auto discriminatorTags = iConfig.getParameter<std::vector<edm::InputTag>>("discriminatorSources");
-  discriminatorTokens_ = edm::vector_transform(discriminatorTags, [this](edm::InputTag const& tag) {
-    return mayConsume<reco::JetFloatAssociation::Container>(tag);
-  });
-  addTagInfos_ = iConfig.getParameter<bool>("addTagInfos");
-  const auto tagInfoTags = iConfig.getParameter<std::vector<edm::InputTag>>("tagInfoSources");
-  tagInfoTokens_ = edm::vector_transform(
-      tagInfoTags, [this](edm::InputTag const& tag) { return mayConsume<edm::View<reco::BaseTagInfo>>(tag); });
-  if (discriminatorTags.empty()) {
-    addDiscriminators_ = false;
-  } else {
-    for (auto const& tag : discriminatorTags) {
-      std::string label = tag.label();
-      std::string::size_type pos = label.find("JetTags");
-      if ((pos != std::string::npos) && (pos != label.length() - 7))
-        label.erase(pos + 7);  // trim a tail after "JetTags"
-      if (!tag.instance().empty())
-        label = (label + std::string(":") + tag.instance());
-      discriminatorLabels_.push_back(label);
-    }
-  }
-  if (tagInfoTags.empty()) {
-    addTagInfos_ = false;
-  } else {
-    for (auto const& tag : tagInfoTags) {
-      std::string label = tag.label();
-      std::string::size_type pos = label.find("TagInfos");
-      if ((pos != std::string::npos) && (pos != label.length() - 8))
-        label.erase(pos + 8);  // trim a tail after "TagInfos"
-      tagInfoLabels_.push_back(label);
-    }
-  }
-  if (!addBTagInfo_) {
-    addDiscriminators_ = false;
-    addTagInfos_ = false;
-  }
 
   // ---- generic PAT
   addEfficiencies_ = iConfig.getParameter<bool>("addEfficiencies");
@@ -213,7 +159,6 @@ PATGenJetProducer::PATGenJetProducer(const edm::ParameterSet& iConfig)
         PATUserDataHelper<pat::GenJet>(iConfig.getParameter<edm::ParameterSet>("userData"), consumesCollector());
 
   produces<std::vector<pat::GenJet>>();
-  produces<edm::OwnVector<reco::BaseTagInfo>>("tagInfos");
 }
 
 /// constituents mapped through the genParticles -> packedGenParticles association
@@ -262,9 +207,33 @@ void PATGenJetProducer::rekeyDaughters(pat::GenJet& jet,
     jet.addDaughter(p);
 }
 
+/// the constituents of the jet as generator particles (back Ptr), each forwarded through the chain of maps;
+/// a particle without partner keeps forward = back (FwdPtr needs both null or both non-null)
+reco::GenParticleFwdPtrVector PATGenJetProducer::genCandidates(
+    pat::GenJet const& jet, std::vector<const edm::Association<reco::GenParticleCollection>*> const& maps) const {
+  reco::GenParticleFwdPtrVector out;
+  out.reserve(jet.numberOfDaughters());
+  for (auto const& dau : jet.daughterPtrVector()) {
+    const reco::GenParticlePtr back(dau);  // dynamic_cast; null pointer if the constituent is no reco::GenParticle
+    if (back.get() == nullptr)
+      continue;
+    reco::GenParticlePtr fwd = back;
+    for (auto const* map : maps) {
+      const reco::GenParticleRef ref = (*map)[fwd];
+      if (ref.isNull()) {
+        fwd = back;
+        break;
+      }
+      fwd = edm::refToPtr(ref);
+    }
+    out.emplace_back(fwd, back);
+  }
+  return out;
+}
+
 void PATGenJetProducer::produce(edm::Event& iEvent, const edm::EventSetup& iSetup) {
   // PATJetProducer.cc:240: MC inputs off on real data
-  const pat::genjethelpers::MCSwitches mc = mc_.forEvent(iEvent.isRealData());
+  const bool addGenPartonMatch = addGenPartonMatch_ && !iEvent.isRealData();
 
   edm::Handle<edm::View<reco::GenJet>> jets;
   iEvent.getByToken(jetsToken_, jets);
@@ -278,29 +247,17 @@ void PATGenJetProducer::produce(edm::Event& iEvent, const edm::EventSetup& iSetu
   if (rekey_)
     gp2pgp = &iEvent.get(gp2pgpToken_);
 
-  edm::Handle<reco::JetFlavourMatchingCollection> jetFlavMatch;
-  edm::Handle<reco::JetFlavourInfoMatchingCollection> jetFlavInfoMatch;
-  if (mc.getJetMCFlavour && mc.useLegacyJetMCFlavour)
-    iEvent.getByToken(jetPartonMapToken_, jetFlavMatch);
-  else if (mc.getJetMCFlavour && !mc.useLegacyJetMCFlavour)
-    iEvent.getByToken(jetFlavourInfoToken_, jetFlavInfoMatch);
-
   edm::Handle<edm::Association<reco::GenParticleCollection>> partonMatch;
-  if (mc.addGenPartonMatch)
+  if (addGenPartonMatch)
     iEvent.getByToken(genPartonToken_, partonMatch);
 
-  std::vector<edm::Handle<reco::JetFloatAssociation::Container>> jetDiscriminators;
-  if (addBTagInfo_ && addDiscriminators_) {
-    jetDiscriminators.resize(discriminatorTokens_.size());
-    for (size_t i = 0; i < discriminatorTokens_.size(); ++i)
-      iEvent.getByToken(discriminatorTokens_[i], jetDiscriminators[i]);
-  }
-  std::vector<edm::Handle<edm::View<reco::BaseTagInfo>>> jetTagInfos;
-  if (addBTagInfo_ && addTagInfos_) {
-    jetTagInfos.resize(tagInfoTokens_.size());
-    for (size_t i = 0; i < tagInfoTokens_.size(); ++i)
-      iEvent.getByToken(tagInfoTokens_[i], jetTagInfos[i]);
-  }
+  std::vector<const edm::Association<reco::GenParticleCollection>*> genCandidatesForwardMaps;
+  for (auto const& token : genCandidatesForwardMapTokens_)
+    genCandidatesForwardMaps.push_back(&iEvent.get(token));
+
+  const edm::Association<reco::GenJetCollection>* genJetForwardMap = nullptr;
+  if (forwardGenJet_)
+    genJetForwardMap = &iEvent.get(genJetForwardMapToken_);
 
   edm::Handle<reco::JetFloatAssociation::Container> hJetChargeAss;
   if (addJetCharge_)
@@ -308,32 +265,27 @@ void PATGenJetProducer::produce(edm::Event& iEvent, const edm::EventSetup& iSetu
 
   auto patJets = std::make_unique<std::vector<pat::GenJet>>();
   patJets->reserve(jets->size());
-  auto tagInfosOut = std::make_unique<edm::OwnVector<reco::BaseTagInfo>>();
-  const edm::RefProd<edm::OwnVector<reco::BaseTagInfo>> h_tagInfosOut =
-      iEvent.getRefBeforePut<edm::OwnVector<reco::BaseTagInfo>>("tagInfos");
-  const edm::RefProd<pat::GenJetCollection> h_jetsOut = iEvent.getRefBeforePut<pat::GenJetCollection>();
 
   for (size_t idx = 0, n = jets->size(); idx < n; ++idx) {
     const edm::RefToBase<reco::GenJet> genJetRef = jets->refAt(idx);
     // key for the maps keyed to reco::Jet (flavour, JetFloatAssociation): same product ID and key
     const edm::Ptr<reco::Jet> jetPtr(jets->ptrAt(idx));
-    pat::GenJet ajet(genJetRef);
+    pat::GenJet ajet(genJetRef);  // genJetFwdRef: forward and back ref to the input jet
+
+    if (genJetForwardMap) {
+      // a jet without partner keeps forward = back (FwdRef needs both null or both non-null)
+      const reco::GenJetRef fwd = (*genJetForwardMap)[genJetRef];
+      if (fwd.isNonnull())
+        ajet.updateFwdGenJetFwdRef(fwd);
+    }
+
+    // before the re-keying: the constituents of the input jet are the generator particles
+    if (embedGenCandidates_)
+      ajet.setGenCandidates(genCandidates(ajet, genCandidatesForwardMaps));
 
     rekeyDaughters(ajet, gp2pgp);
 
-    // flavour, as PATJetProducer.cc:419-430
-    if (mc.getJetMCFlavour && mc.useLegacyJetMCFlavour) {
-      ajet.setPartonFlavour((*jetFlavMatch)[jetPtr].getFlavour());
-    } else if (mc.getJetMCFlavour && !mc.useLegacyJetMCFlavour) {
-      const reco::JetFlavourInfo& info = (*jetFlavInfoMatch)[jetPtr];
-      if (mc.addJetFlavourInfo) {
-        ajet.setJetFlavourInfo(info);
-      } else {
-        ajet.setPartonFlavour(info.getPartonFlavour());
-        ajet.setHadronFlavour(info.getHadronFlavour());
-      }
-    }
-    if (mc.addGenPartonMatch) {
+    if (addGenPartonMatch) {
       reco::GenParticleRef parton = (*partonMatch)[genJetRef];
       if (parton.isNonnull() && parton.isAvailable())
         ajet.setGenParton(parton, embedGenPartonMatch_);
@@ -343,40 +295,6 @@ void PATGenJetProducer::produce(edm::Event& iEvent, const edm::EventSetup& iSetu
       efficiencyLoader_.setEfficiencies(ajet, genJetRef);
     if (resolutionLoader_.enabled())
       resolutionLoader_.setResolutions(ajet);
-
-    if (addBTagInfo_) {
-      if (addDiscriminators_) {
-        for (size_t k = 0; k < jetDiscriminators.size(); ++k) {
-          float value = (*jetDiscriminators[k])[jetPtr];
-          ajet.addBDiscriminatorPair(std::make_pair(discriminatorLabels_[k], value));
-        }
-      }
-      if (addTagInfos_) {
-        for (size_t k = 0; k < jetTagInfos.size(); ++k) {
-          const edm::View<reco::BaseTagInfo>& taginfos = *jetTagInfos[k];
-          auto sameJet = [&jetPtr](reco::BaseTagInfo const& ti) {
-            return ti.jet().id() == jetPtr.id() && ti.jet().key() == jetPtr.key();
-          };
-          edm::Ptr<reco::BaseTagInfo> match;
-          if ((idx < taginfos.size()) && sameJet(taginfos[idx])) {
-            match = taginfos.ptrAt(idx);
-          } else {
-            for (size_t t = 0; t < taginfos.size(); ++t) {
-              if (sameJet(taginfos[t])) {
-                match = taginfos.ptrAt(t);
-                break;
-              }
-            }
-          }
-          if (match.isNonnull()) {
-            tagInfosOut->push_back(match->clone());
-            edm::Ptr<reco::BaseTagInfo> tagInfoForwardPtr(
-                h_tagInfosOut.id(), &tagInfosOut->back(), tagInfosOut->size() - 1);
-            ajet.addTagInfo(tagInfoLabels_[k], TagInfoFwdPtrCollection::value_type(tagInfoForwardPtr, match));
-          }
-        }
-      }
-    }
 
     if (addJetCharge_)
       ajet.setJetCharge((*hJetChargeAss)[jetPtr]);
@@ -388,11 +306,8 @@ void PATGenJetProducer::produce(edm::Event& iEvent, const edm::EventSetup& iSetu
   }
 
   std::sort(patJets->begin(), patJets->end(), pTComparator_);
-  // after the sort, so that entry i links to itself
-  pat::genjethelpers::setSelfLinks(*patJets, h_jetsOut);
 
   iEvent.put(std::move(patJets));
-  iEvent.put(std::move(tagInfosOut), "tagInfos");
 }
 
 void PATGenJetProducer::fillDescriptions(edm::ConfigurationDescriptions& descriptions) {
@@ -416,19 +331,16 @@ void PATGenJetProducer::fillDescriptions(edm::ConfigurationDescriptions& descrip
   iDesc.add<bool>("addJetCharge", false);
   iDesc.add<edm::InputTag>("jetChargeSource", edm::InputTag());
 
-  iDesc.add<bool>("addTagInfos", false);
-  std::vector<edm::InputTag> emptyVInputTags;
-  iDesc.add<std::vector<edm::InputTag>>("tagInfoSources", emptyVInputTags);
-
-  iDesc.add<bool>("addBTagInfo", false);
-  iDesc.add<bool>("addDiscriminators", false);
-  iDesc.add<std::vector<edm::InputTag>>("discriminatorSources", emptyVInputTags);
-
-  iDesc.add<bool>("getJetMCFlavour", true);
-  iDesc.add<bool>("useLegacyJetMCFlavour", false);
-  iDesc.add<bool>("addJetFlavourInfo", true);
-  iDesc.add<edm::InputTag>("JetPartonMapSource", edm::InputTag());
-  iDesc.add<edm::InputTag>("JetFlavourInfoSource", edm::InputTag());
+  iDesc.add<bool>("embedGenCandidates", false)
+      ->setComment("store the generator particles of the jet (genCandidates), as embedPFCandidates of PATJetProducer");
+  iDesc.add<std::vector<edm::InputTag>>("genCandidatesForwardMaps", std::vector<edm::InputTag>())
+      ->setComment(
+          "chain of Association<GenParticleCollection>, applied in order, from the constituents' collection to the "
+          "collection the forward Ptrs point to (no partner: forward = back); empty: forward = back");
+  iDesc.add<edm::InputTag>("genJetForwardMap", edm::InputTag())
+      ->setComment(
+          "Association<GenJetCollection> from the input jets to the collection the forward ref of genJetFwdRef points "
+          "to (no partner: forward = back); empty label: forward = back = the input jet");
 
   pat::helper::KinResolutionsLoader::fillDescription(iDesc);
 

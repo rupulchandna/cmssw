@@ -24,13 +24,15 @@ import sys
 import FWCore.ParameterSet.Config as cms
 
 
-# columns that are constant for generator jets and are not written (30); every other non-tagger column is kept
+# columns that are not written for generator jets (constant, flavour and gen-jet index columns, 39); every other non-tagger column is kept
 REMOVED = {
     "PatGenJet": ["rawFactor", "area", "hfEmEF", "hfHEF", "hfsigmaEtaEta", "hfsigmaPhiPhi", "hfcentralEtaStripSize",
                   "hfadjacentEtaStripsSize", "puIdDisc", "muonSubtrFactor", "muonSubtrDeltaEta", "muonSubtrDeltaPhi",
-                  "nElectrons", "nMuons", "nSVs", "electronIdx1", "electronIdx2", "muonIdx1", "muonIdx2", "svIdx1", "svIdx2"],
-    "PatGenJetAK8": ["rawFactor", "area", "hfEmEF", "hfHEF", "lsf3", "electronIdx3SJ", "muonIdx3SJ"],
-    "PatSubGenJetAK8": ["rawFactor", "area"],
+                  "nElectrons", "nMuons", "nSVs", "electronIdx1", "electronIdx2", "muonIdx1", "muonIdx2", "svIdx1", "svIdx2",
+                  "partonFlavour", "hadronFlavour", "genJetIdx"],
+    "PatGenJetAK8": ["rawFactor", "area", "hfEmEF", "hfHEF", "lsf3", "electronIdx3SJ", "muonIdx3SJ",
+                     "hadronFlavour", "genJetAK8Idx"],
+    "PatSubGenJetAK8": ["rawFactor", "area", "nBHadrons", "nCHadrons", "hadronFlavour", "subGenJetAK8Idx"],
 }
 
 

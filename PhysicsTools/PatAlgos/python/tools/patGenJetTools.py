@@ -2,7 +2,7 @@
 (class AddJetCollection(ConfigToolBase) with a module-level instance).
 
     from PhysicsTools.PatAlgos.tools.patGenJetTools import addPatGenJetCollection
-    addPatGenJetCollection(process, labelName='AK8Puppi', genJetSource='ak8GenJetsNoNu', algo='AK', rParam=0.8,
+    addPatGenJetCollection(process, labelName='AK8Puppi', genJetSource='ak8GenJetsNoNu', rParam=0.8,
                            groomedSource='ak8GenJetsNoNuSoftDrop')
 
 Importing this file changes nothing in any process: the instance only configures a process when it is called.
@@ -15,7 +15,6 @@ labels are the ones in the right-hand column and a table that reads the reco lab
   patGenJets<L><P>                       PATGenJetProducer on genJetSource          Njettiness<L>:tau1..4, groomedMass<L>
   Njettiness<L>ForPatGenJets<P>          NjettinessAdder (substructure)
   groomedMass<L>ForPatGenJets<P>         RecoJetDeltaRValueMapProducer (groomedSource given)
-  <L>FlavourInfosForPatGenJets<P>        JetFlavourClustering (flavour): jets, and with groomedSource also subjets
   and, when groomedSource is given:
   nb1<L><G>ForPatGenJets<P>, nb2<L><G>…  ECFAdder on the groomed jets              nb1<L><G>:ecfN2/N3 (copied to the fat jet)
   Njettiness<L>SubjetsForPatGenJets<P>   NjettinessAdder on the subjets            Njettiness<L>Subjets:tau1..4
@@ -25,8 +24,7 @@ labels are the ones in the right-hand column and a table that reads the reco lab
   packedPatGenJets<L><P>                 PATGenJetSubstructurePacker: fat jets with subjets(subjetLabel); subjets in :SubJets
   (G = groomedName)
 
-The flavour needs selectedHadronsAndPartonsForGenJetsFlavourInfos (made by MiniAOD); it is created, new, if absent. The AK4-style
-flavour is taken from `flavour` = True. All modules are added to the PAT tools task.
+All modules are added to the PAT tools task.
 """
 import copy
 import FWCore.ParameterSet.Config as cms
@@ -34,11 +32,9 @@ from PhysicsTools.PatAlgos.tools.ConfigToolBase import ConfigToolBase
 import FWCore.ParameterSet.DictTypes as dicttypes
 from PhysicsTools.PatAlgos.tools.helpers import getPatAlgosToolsTask, addToProcessAndTask
 
-_ALGOS = {'AK': 'AntiKt', 'ANTIKT': 'AntiKt', 'ANTI-KT': 'AntiKt', 'CA': 'CambridgeAachen', 'KT': 'Kt'}
-
 
 class AddPatGenJetCollection(ConfigToolBase):
-    """Tool to add a pat::GenJet collection (and, for fat jets, its subjets, substructure and flavour) to a process."""
+    """Tool to add a pat::GenJet collection (and, for fat jets, its subjets and substructure) to a process."""
     _label = 'addPatGenJetCollection'
     _defaultParameters = dicttypes.SortedKeysDict()
 
@@ -46,26 +42,24 @@ class AddPatGenJetCollection(ConfigToolBase):
         ConfigToolBase.__init__(self)
         self.addParameter(self._defaultParameters, 'labelName', 'UNDEFINED', "Label name of the new collection (patGenJets<labelName>).", str)
         self.addParameter(self._defaultParameters, 'genJetSource', cms.InputTag(''), "Input View<reco::GenJet> (e.g. ak8GenJetsNoNu).", cms.InputTag)
-        self.addParameter(self._defaultParameters, 'algo', 'AK', "Jet algorithm of the input: AK, CA or KT (flavour clustering).", str)
-        self.addParameter(self._defaultParameters, 'rParam', 0.4, "Distance parameter of the input jets (flavour clustering, N-subjettiness R0).")
+        self.addParameter(self._defaultParameters, 'rParam', 0.4, "Distance parameter of the input jets (N-subjettiness R0).")
         self.addParameter(self._defaultParameters, 'groomedSource', None, "Groomed jets (e.g. ak8GenJetsNoNuSoftDrop), written with their subjets; enables selector and packer.", cms.InputTag, acceptNoneValue=True)
         self.addParameter(self._defaultParameters, 'subjetSource', None, "Subjets of the groomed jets; default groomedSource:SubJets.", cms.InputTag, acceptNoneValue=True)
         self.addParameter(self._defaultParameters, 'substructure', True, "Add N-subjettiness (jets, subjets), energy correlation functions and groomed mass.")
-        self.addParameter(self._defaultParameters, 'flavour', True, "Add the hadron/parton flavour (JetFlavourClustering).")
         self.addParameter(self._defaultParameters, 'packedGenParticles', cms.InputTag('packedGenParticles'), "Association to the packed gen particles for the constituents; empty = no re-keying.", cms.InputTag)
         self.addParameter(self._defaultParameters, 'postfix', '', "Postfix of every module label.", str)
         self.addParameter(self._defaultParameters, 'groomedName', 'SoftDrop', "Name of the grooming in the labels (nb1<labelName><groomedName>).", str)
         self.addParameter(self._defaultParameters, 'subjetLabel', 'SoftDropPuppi', "Label of the subjet collection on the fat jets, subjets(label).", str)
         self._parameters = copy.deepcopy(self._defaultParameters)
-        self._comment = "Tool to add a pat::GenJet collection: producer, optional soft-drop subjets, substructure and flavour."
+        self._comment = "Tool to add a pat::GenJet collection: producer, optional soft-drop subjets and substructure."
 
     def getDefaultParameters(self):
         return self._defaultParameters
 
-    def __call__(self, process, labelName=None, genJetSource=None, algo=None, rParam=None, groomedSource=None, subjetSource=None,
-                 substructure=None, flavour=None, packedGenParticles=None, postfix=None, groomedName=None, subjetLabel=None):
-        values = dict(labelName=labelName, genJetSource=genJetSource, algo=algo, rParam=rParam, groomedSource=groomedSource,
-                      subjetSource=subjetSource, substructure=substructure, flavour=flavour,
+    def __call__(self, process, labelName=None, genJetSource=None, rParam=None, groomedSource=None, subjetSource=None,
+                 substructure=None, packedGenParticles=None, postfix=None, groomedName=None, subjetLabel=None):
+        values = dict(labelName=labelName, genJetSource=genJetSource, rParam=rParam, groomedSource=groomedSource,
+                      subjetSource=subjetSource, substructure=substructure,
                       packedGenParticles=packedGenParticles, postfix=postfix, groomedName=groomedName, subjetLabel=subjetLabel)
         for name, value in values.items():
             if value is None:
@@ -82,9 +76,6 @@ class AddPatGenJetCollection(ConfigToolBase):
             raise ValueError("addPatGenJetCollection: labelName is required")
         if not p['genJetSource'].moduleLabel:
             raise ValueError("addPatGenJetCollection: genJetSource is required")
-        algo = _ALGOS.get(str(p['algo']).upper())
-        if algo is None:
-            raise ValueError("addPatGenJetCollection: algo must be one of %s, got %r" % (sorted(_ALGOS), p['algo']))
         task = getPatAlgosToolsTask(process)
         G = p['groomedName']
         STRIP = 'ForPatGenJets' + P
@@ -95,8 +86,7 @@ class AddPatGenJetCollection(ConfigToolBase):
         subjets = (p['subjetSource'] if p['subjetSource'] is not None else
                    (cms.InputTag(groomed.moduleLabel, 'SubJets') if fat else None))
         # names, all new
-        names = dict(jets='patGenJets%s%s' % (L, P), tau='Njettiness%s%s%s' % (L, STRIP, ''),
-                     flav='%sFlavourInfos%s' % (L, STRIP))
+        names = dict(jets='patGenJets%s%s' % (L, P), tau='Njettiness%s%s%s' % (L, STRIP, ''))
         for n in list(names.values()) + (['selectedPatGenJets%s%s' % (L, P)] if fat else []):
             if hasattr(process, n):
                 raise ValueError("addPatGenJetCollection: the process already has a module %s (labelName/postfix clash)" % n)
@@ -128,35 +118,15 @@ class AddPatGenJetCollection(ConfigToolBase):
                 addToProcessAndTask(stab, Njettiness.clone(src=subjets, R0=p['rParam'], srcWeights=''), process, task)
                 subFloats += [cms.InputTag(stab, 'tau%d' % i) for i in (1, 2, 3, 4)]
 
-        flavInfo = flavSub = cms.InputTag('')
-        if p['flavour']:
-            if not hasattr(process, 'selectedHadronsAndPartonsForGenJetsFlavourInfos'):
-                from PhysicsTools.JetMCAlgos.HadronAndPartonSelector_cfi import selectedHadronsAndPartonsForGenJetsFlavourInfos
-                addToProcessAndTask('selectedHadronsAndPartonsForGenJetsFlavourInfos',
-                                    selectedHadronsAndPartonsForGenJetsFlavourInfos.clone(), process, task)
-            sel = 'selectedHadronsAndPartonsForGenJetsFlavourInfos'
-            flavour = cms.EDProducer("JetFlavourClustering",
-                jets=genJets,
-                bHadrons=cms.InputTag(sel, 'bHadrons'), cHadrons=cms.InputTag(sel, 'cHadrons'),
-                partons=cms.InputTag(sel, 'physicsPartons'), leptons=cms.InputTag(sel, 'leptons'),
-                jetAlgorithm=cms.string(algo), rParam=cms.double(p['rParam']),
-                ghostRescaling=cms.double(1e-18), hadronFlavourHasPriority=cms.bool(False))
-            if fat:
-                flavour.groomedJets = groomed
-                flavour.subjets = subjets
-            addToProcessAndTask(names['flav'], flavour, process, task)
-            flavInfo = cms.InputTag(names['flav'])
-            flavSub = cms.InputTag(names['flav'], 'SubJets')
-
-        common = dict(packedGenParticles=packed, getJetMCFlavour=bool(p['flavour']))
+        common = dict(packedGenParticles=packed)
         addToProcessAndTask(names['jets'], patGenJetProducer.clone(
-            jetSource=genJets, JetFlavourInfoSource=flavInfo, userData=userDataPSet(floats=floats, strip=(STRIP,)), **common),
+            jetSource=genJets, userData=userDataPSet(floats=floats, strip=(STRIP,)), **common),
             process, task)
         if not fat:
             return
         subLabel = 'patGenJets%sSubjets%s' % (L, P)
         addToProcessAndTask(subLabel, patGenJetProducer.clone(
-            jetSource=subjets, JetFlavourInfoSource=flavSub, userData=userDataPSet(floats=subFloats, strip=(STRIP,)), **common),
+            jetSource=subjets, userData=userDataPSet(floats=subFloats, strip=(STRIP,)), **common),
             process, task)
         from PhysicsTools.PatAlgos.patGenJetSelector_cfi import patGenJetSelector
         from PhysicsTools.PatAlgos.patGenJetSubstructurePacker_cfi import patGenJetSubstructurePacker

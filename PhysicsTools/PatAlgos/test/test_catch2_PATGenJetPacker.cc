@@ -2,12 +2,15 @@
 // Chain: inputs -> PATGenJetProducer (fat jets) and PATGenJetProducer (subjets) -> packer.
 // Checks: first-within-distMax match; subjet output order = groomed daughter order; fat-jet subjet keys
 // point into the packer's own SubJets output; ECF copied with stripped label; groomedMass = mass of the
-// subjet sum; self links of both outputs; association; fixDaughters.
+// subjet sum; genJetFwdRef and genCandidatesFwdPtr of fat jets and subjets kept; no tagInfos product;
+// association; fixDaughters.
 
 #include "DataFormats/PatCandidates/interface/GenJet.h"
 #include "PhysicsTools/PatAlgos/test/PatGenJetTestCommon.h"
 
+#include "DataFormats/BTauReco/interface/BaseTagInfo.h"
 #include "DataFormats/Common/interface/Association.h"
+#include "DataFormats/Common/interface/OwnVector.h"
 #include "FWCore/TestProcessor/interface/TestProcessor.h"
 
 #include <cmath>
@@ -23,10 +26,11 @@ using Catch::Approx;
 namespace {
   const std::string kInputs = "genInputsForPatGenJets";
 
-  std::string packerConfig(std::string const& extra = "") {
+  // extra: more arguments of the packer; fatArgs: more arguments of the fat-jet producer
+  std::string packerConfig(std::string const& extra = "", std::string const& fatArgs = "") {
     return patgenjettest::header() +
            "process.patGenJets = cms.EDProducer('PATGenJetProducer', jetSource = cms.InputTag('" + kInputs +
-           ":jets'), packedGenParticles = cms.InputTag('" + kInputs + "'))\n" +
+           ":jets'), packedGenParticles = cms.InputTag('" + kInputs + "')" + fatArgs + ")\n" +
            "process.patSubjets = cms.EDProducer('PATGenJetProducer', jetSource = cms.InputTag('" + kInputs +
            ":subjets'), packedGenParticles = cms.InputTag('" + kInputs + "'))\n" +
            "process.toTest = cms.EDProducer('PATGenJetSubstructurePacker', jetSrc = cms.InputTag('patGenJets'),\n"
@@ -56,12 +60,12 @@ TEST_CASE("PATGenJetSubstructurePacker: subjet output, matching, ECF, groomedMas
   // the subjet producer sorted them by pt (50, 30, 25, 20, 10, 5), so this order is the packer's
   REQUIRE(sub.size() == 6);
   CHECK_THAT(patgenjettest::pts(sub), Catch::Matchers::Approx(std::vector<double>{30., 50., 20., 25., 10., 5.}));
-  CHECK(patgenjettest::badSelfLinks(sub) == 0);
+  CHECK(patgenjettest::badBackRefs(sub) == 0);
 
-  // fat jets: producer order (pt-sorted) 80, 50, 30, 12; self links into the packer output
+  // fat jets: producer order (pt-sorted) 80, 50, 30, 12; genJetFwdRef kept
   REQUIRE(fat.size() == 4);
   CHECK_THAT(patgenjettest::pts(fat), Catch::Matchers::Approx(std::vector<double>{80., 50., 30., 12.}));
-  CHECK(patgenjettest::badSelfLinks(fat) == 0);
+  CHECK(patgenjettest::badBackRefs(fat) == 0);
 
   // "80" matches G0 (dR ~0.1): subjets = output entries 0, 1
   auto const& j80 = fat[0];
@@ -70,7 +74,7 @@ TEST_CASE("PATGenJetSubstructurePacker: subjet output, matching, ECF, groomedMas
   // the Ptrs point into the packer's OWN SubJets product: they resolve to its entries
   for (auto const& p : j80.subjets("SoftDropPuppi")) {
     CHECK(p.get() == &sub[p.key()]);
-    CHECK(p.id() == sub[0].genJetFwdRef().ref().id());
+    CHECK(p.id() != sub[0].genJetFwdRef().backRef().id());  // the packer output, not the input subjets
   }
   CHECK(j80.userFloat("genInputs:ecfN2") == Approx(0.11f));  // label stripped of "ForPatGenJets"
   CHECK_FALSE(j80.hasUserFloat("genInputsForPatGenJets:ecfN2"));
@@ -91,6 +95,9 @@ TEST_CASE("PATGenJetSubstructurePacker: subjet output, matching, ECF, groomedMas
     CHECK(fat[i].groomedMass("SoftDropPuppi") == -1.0);
     CHECK_FALSE(fat[i].hasUserFloat("genInputs:ecfN2"));
   }
+
+  // no tagInfos product
+  CHECK_THROWS_AS(event.get<edm::OwnVector<reco::BaseTagInfo>>("tagInfos")->size(), cms::Exception);
 
   // fat jets keep their packed constituents (fixDaughters False)
   CHECK(j80.numberOfDaughters() == 3);
@@ -135,4 +142,33 @@ TEST_CASE("PATGenJetSubstructurePacker: fixDaughters", "[PATGenJetSubstructurePa
 TEST_CASE("PATGenJetSubstructurePacker: duplicate subjet instance rejected", "[PATGenJetSubstructurePacker]") {
   const std::string extra = "\nprocess.toTest.algos.append(process.toTest.algos[0].clone(label = 'Other'))\n";
   CHECK_THROWS_AS(edm::test::TestProcessor(packerConfig() + extra), cms::Exception);
+}
+
+TEST_CASE("PATGenJetSubstructurePacker: genJetFwdRef and genCandidatesFwdPtr unchanged",
+          "[PATGenJetSubstructurePacker]") {
+  const std::string fatArgs = ", genJetForwardMap = cms.InputTag('" + kInputs +
+                              ":jetmap'), embedGenCandidates = cms.bool(True), genCandidatesForwardMaps = "
+                              "cms.VInputTag('" +
+                              kInputs + ":map1', '" + kInputs + ":map2')";
+  edm::test::TestProcessor tester(packerConfig("", fatArgs));
+  auto event = tester.test();
+  auto const& fat = *event.get<std::vector<pat::GenJet>>();
+  auto const& sub = *event.get<std::vector<pat::GenJet>>("SubJets");
+  REQUIRE(fat.size() == 4);  // 80, 50, 30, 12
+  CHECK(patgenjettest::badBackRefs(fat) == 0);
+  CHECK(patgenjettest::badBackRefs(sub) == 0);
+  const std::vector<std::vector<int>> expectedStage2 = {{0, 1, 5, 9}, {4, 3}, {2, 6}, {7, 8}};
+  for (size_t i = 0; i < fat.size(); ++i) {
+    INFO("jet pt " << fat[i].pt());
+    auto const& l = fat[i].genJetFwdRef();
+    CHECK(l.ref().key() == static_cast<unsigned>(patgenjettest::expectedJetFwdKey(fat[i].pt())));
+    auto const& fp = fat[i].genCandidatesFwdPtr();
+    REQUIRE(fp.size() == expectedStage2[i].size());
+    for (size_t k = 0; k < fp.size(); ++k) {
+      CHECK(fp[k].ptr().key() == static_cast<unsigned>(expectedStage2[i][k]));
+    }
+  }
+  // subjets: made without maps and without embedGenCandidates
+  for (auto const& j : sub)
+    CHECK(j.genCandidatesFwdPtr().empty());
 }

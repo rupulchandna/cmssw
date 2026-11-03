@@ -16,10 +16,11 @@ definitions (no era), which is only a baseline.
 Changes on top of the copy (documentedChanges, used by test/patGenJet_check_columns.py):
   - removed: every tagger and regression column (expression reads bDiscriminator), and the columns that are constant
     for generator jets (documentedChanges[...]['removed']: JEC, area, HF shape, pileup ID, muon subtraction,
-    lepton/SV overlap indices, lepton-in-jet variables); the externalVariables (lepInAK8JetVars) are not copied
+    lepton/SV overlap indices, lepton-in-jet variables), the flavour columns (pat::GenJet stores no flavour; the
+    GenJet tables have it) and the gen-jet index columns (genJetFwdRef points to the reco::GenJet the jet was made
+    from, not to a table row); the externalVariables (lepInAK8JetVars) are not copied
   - pt precision -1 (full precision) in all three tables
-  - added: nBHadrons, nCHadrons (PatGenJet, PatGenJetAK8), partonFlavour (PatGenJetAK8), genEmEF/genHadEF/
-    genInvisibleEF/genAuxiliaryEF (all three)
+  - added: genEmEF/genHadEF/genInvisibleEF/genAuxiliaryEF (all three)
   - PatGenJetAK8: columns guarded by isPFJet() are un-guarded, so they give the generator values
   - PatGenJetAK8: any unguarded userFloat read of a label that only the packer writes (groomed-jet ECFs, absent on fat
     jets without a groomed match) is wrapped in hasUserFloat
@@ -39,19 +40,21 @@ TAGGER_EXPR = 'bDiscriminator('
 
 documentedChanges = {
     'PatGenJet': dict(
-        added=['nBHadrons', 'nCHadrons', 'genEmEF', 'genHadEF', 'genInvisibleEF', 'genAuxiliaryEF'],
+        added=['genEmEF', 'genHadEF', 'genInvisibleEF', 'genAuxiliaryEF'],
         removed=['rawFactor', 'area', 'hfEmEF', 'hfHEF', 'hfsigmaEtaEta', 'hfsigmaPhiPhi', 'hfcentralEtaStripSize',
                  'hfadjacentEtaStripsSize', 'puIdDisc', 'muonSubtrFactor', 'muonSubtrDeltaEta', 'muonSubtrDeltaPhi',
-                 'nElectrons', 'nMuons', 'nSVs', 'electronIdx1', 'electronIdx2', 'muonIdx1', 'muonIdx2', 'svIdx1', 'svIdx2'],
+                 'nElectrons', 'nMuons', 'nSVs', 'electronIdx1', 'electronIdx2', 'muonIdx1', 'muonIdx2', 'svIdx1', 'svIdx2',
+                 'partonFlavour', 'hadronFlavour', 'genJetIdx'],
         precision=['pt'], unguarded=[]),
     'PatGenJetAK8': dict(
-        added=['partonFlavour', 'nBHadrons', 'nCHadrons', 'genEmEF', 'genHadEF', 'genInvisibleEF', 'genAuxiliaryEF'],
-        removed=['rawFactor', 'area', 'hfEmEF', 'hfHEF', 'lsf3', 'electronIdx3SJ', 'muonIdx3SJ'],
+        added=['genEmEF', 'genHadEF', 'genInvisibleEF', 'genAuxiliaryEF'],
+        removed=['rawFactor', 'area', 'hfEmEF', 'hfHEF', 'lsf3', 'electronIdx3SJ', 'muonIdx3SJ',
+                 'hadronFlavour', 'genJetAK8Idx'],
         precision=['pt'],
         unguarded=['chMultiplicity', 'neMultiplicity', 'chHEF', 'neHEF', 'chEmEF', 'neEmEF', 'muEF']),
     'PatSubGenJetAK8': dict(
         added=['genEmEF', 'genHadEF', 'genInvisibleEF', 'genAuxiliaryEF'],
-        removed=['rawFactor', 'area'],
+        removed=['rawFactor', 'area', 'nBHadrons', 'nCHadrons', 'hadronFlavour', 'subGenJetAK8Idx'],
         precision=['pt'], unguarded=[]),
 }
 
@@ -100,12 +103,6 @@ def _fractions():
         genAuxiliaryEF=Var("auxiliaryEnergy()/energy()", float, doc="generator auxiliary energy fraction (reco::GenJet::Specific)", precision=10),
     )
 
-def _flavourCounts():
-    return cms.PSet(
-        nBHadrons=Var("jetFlavourInfo().getbHadrons().size()", "uint8", doc="number of b-hadrons"),
-        nCHadrons=Var("jetFlavourInfo().getcHadrons().size()", "uint8", doc="number of c-hadrons"),
-    )
-
 def _extend(out, extra):
     for name in extra.parameterNames_():
         setattr(out, name, getattr(extra, name))
@@ -113,7 +110,6 @@ def _extend(out, extra):
 def ak4Variables(jetTable, jetMCTable):
     out = _copy(documentedChanges['PatGenJet']['removed'], jetTable, jetMCTable)
     out.pt.precision = -1
-    _extend(out, _flavourCounts())
     _extend(out, _fractions())
     return out
 
@@ -122,8 +118,6 @@ def ak8Variables(fatJetTable, fatJetMCTable):
     _unguardPF(out)
     _guardUserFloats(out, PACKER_USER_FLOATS)
     out.pt.precision = -1
-    out.partonFlavour = Var("partonFlavour()", "int16", doc="flavour from parton matching")
-    _extend(out, _flavourCounts())
     _extend(out, _fractions())
     return out
 
@@ -188,7 +182,7 @@ def configurePatGenJetTables(process):
 # ---------------------------------------------------------------------------------------------------------
 # DQM (modelled on nanoDQM_cfi.py GenJetAK8): added from here, no file of PhysicsTools/NanoAOD is edited
 
-def _plots(doc, fat=False, sub=False):
+def _plots(doc, fat=False):
     from PhysicsTools.NanoAOD.nanoDQM_tools_cff import Plot1D, Count1D
     plots = [
         Count1D('_size', 25, -0.5, 24.5, doc),
@@ -197,15 +191,10 @@ def _plots(doc, fat=False, sub=False):
         Plot1D('genEmEF', 'genEmEF', 20, 0, 1, 'generator electromagnetic energy fraction'),
         Plot1D('genHadEF', 'genHadEF', 20, 0, 1, 'generator hadronic energy fraction'),
         Plot1D('genInvisibleEF', 'genInvisibleEF', 20, 0, 1, 'generator invisible energy fraction'),
-        Plot1D('hadronFlavour', 'hadronFlavour', 6, -0.5, 5.5, 'flavour from hadron ghost clustering'),
         Plot1D('mass', 'mass', 20, 0, 200, 'mass'),
-        Plot1D('nBHadrons', 'nBHadrons', 4, -0.5, 3.5, 'number of b-hadrons'),
-        Plot1D('nCHadrons', 'nCHadrons', 4, -0.5, 3.5, 'number of c-hadrons'),
         Plot1D('phi', 'phi', 20, -3.14159, 3.14159, 'phi'),
         Plot1D('pt', 'pt', 20, 0, 200, 'pt'),
     ]
-    if not sub:
-        plots.append(Plot1D('partonFlavour', 'partonFlavour', 40, -9.5, 30.5, 'flavour from parton matching'))
     if fat:
         plots += [Plot1D('msoftdrop', 'msoftdrop', 20, 0, 200, 'Soft drop mass'),
                   Plot1D('tau1', 'tau1', 20, 0, 1, 'Nsubjettiness (1 axis)'),
@@ -219,5 +208,5 @@ def addPatGenJetDQM(process):
     vplots = process.nanoDQM.vplots
     vplots.PatGenJet = _plots('patGenJetsAK4, i.e. ak4 pat::GenJet made with visible genparticles')
     vplots.PatGenJetAK8 = _plots('packedPatGenJetsAK8, i.e. ak8 pat::GenJet made with visible genparticles', fat=True)
-    vplots.PatSubGenJetAK8 = _plots('packedPatGenJetsAK8:SubJets, i.e. subjets of ak8 pat::GenJet', sub=True)
+    vplots.PatSubGenJetAK8 = _plots('packedPatGenJetsAK8:SubJets, i.e. subjets of ak8 pat::GenJet')
     return True

@@ -28,20 +28,22 @@ process.load("PhysicsTools.NanoAOD.nano_cff")
 from PhysicsTools.NanoAOD.nano_cff import nanoAOD_customizeCommon
 process = nanoAOD_customizeCommon(process)
 
-# what MiniAOD makes besides the jets: AK4 flavour, and today's slimmed gen jets for the comparison
-process.load("PhysicsTools.JetMCAlgos.AK4GenJetFlavourInfos_cfi")
+# what MiniAOD makes and the pat::GenJet chain reads: pruned/packed gen particles (re-made from genParticles, as in MiniAOD) and today's
+# slimmed gen jets (for the comparison and for the forward links of genJetFwdRef); ak8GenJetsNoNuSoftDrop comes from the input file
+process.load("SimGeneral.HepPDTESSource.pythiapdt_cfi")  # the pruner reads the particle data table
+process.load("PhysicsTools.PatAlgos.slimming.genParticles_cff")
+from RecoJets.JetProducers.ak8GenJets_cfi import ak8GenJetsSoftDrop
+process.ak8GenJetsNoNuSoftDrop = ak8GenJetsSoftDrop.clone(src=cms.InputTag("ak8GenJetsNoNuConstituents", "constituents"))  # not scheduled
 from PhysicsTools.PatAlgos.slimming.slimmedGenJets_cfi import slimmedGenJets, slimmedGenJetsAK8
 process.slimmedGenJets = slimmedGenJets.clone()
 process.slimmedGenJetsAK8 = slimmedGenJetsAK8.clone()
 process.slimmedGenJetsAK8SoftDropSubJets = cms.EDProducer("PATGenJetSlimmer",
     src=cms.InputTag("ak8GenJetsNoNuSoftDrop", "SubJets"), packedGenParticles=cms.InputTag("packedGenParticles"),
     cut=cms.string(""), cutLoose=cms.string(""), nLoose=cms.uint32(0), clearDaughters=cms.bool(False), dropSpecific=cms.bool(True))
-process.slimmedGenJetsFlavourInfos = cms.EDProducer("GenJetFlavourInfoPreserver",
-    genJetFlavourInfos=cms.InputTag("ak4GenJetFlavourInfos"), genJets=cms.InputTag("ak4GenJetsNoNu"),
-    slimmedGenJetAssociation=cms.InputTag("slimmedGenJets", "slimmedGenJetAssociation"), slimmedGenJets=cms.InputTag("slimmedGenJets"))
 
-# pat::GenJet: chain and tables
-process.load("PhysicsTools.PatAlgos.producersLayer1.patGenJets_cff")
+# pat::GenJet: chain (as MiniAOD with customisePatGenJetsMiniAOD) and tables
+from PhysicsTools.PatAlgos.slimming.customisePatGenJetsMiniAOD import customisePatGenJetsMiniAOD
+process = customisePatGenJetsMiniAOD(process)
 from PhysicsTools.NanoAOD.customisePatGenJetsNano import customisePatGenJetsNano
 process = customisePatGenJetsNano(process)
 
@@ -49,11 +51,10 @@ process = customisePatGenJetsNano(process)
 process.patGenJetAK8AllTable = process.patGenJetAK8Table.clone(cut="", name="PatGenJetAK8All")
 
 process.patGenTask = cms.Task(
-    process.ak4GenJetFlavourInfos, process.patGenJetsTask,
-    process.slimmedGenJets, process.slimmedGenJetsAK8, process.slimmedGenJetsAK8SoftDropSubJets, process.slimmedGenJetsFlavourInfos,
-    process.patJetPartonsNano,
-    process.genJetTable, process.genJetFlavourTable, process.genJetAK8Table, process.genJetAK8FlavourAssociation,
-    process.genJetAK8FlavourTable, process.genSubJetAK8Table,
+    process.prunedGenParticlesWithStatusOne, process.prunedGenParticles, process.packedGenParticles,
+    process.patGenJetsTask,
+    process.slimmedGenJets, process.slimmedGenJetsAK8, process.slimmedGenJetsAK8SoftDropSubJets,
+    process.genJetTable, process.genJetAK8Table, process.genSubJetAK8Table,
     process.patGenJetTablesTask, process.patGenJetAK8AllTable)
 process.p = cms.Path(process.patGenTask)
 process.NANOAODSIMoutput = cms.OutputModule("NanoAODOutputModule", fileName=cms.untracked.string(options.output),

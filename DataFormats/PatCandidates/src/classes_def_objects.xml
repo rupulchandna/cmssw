@@ -412,17 +412,14 @@
 
   <!-- pat::GenJet -->
   <class name="pat::PATObject<reco::io_v1::GenJet>" />
-  <class name="pat::io_v1::GenJet" ClassVersion="3">
+  <class name="pat::io_v1::GenJet" ClassVersion="4">
+   <version ClassVersion="4" checksum="1168249742"/>
    <version ClassVersion="3" checksum="1235940965"/>
    <field name="daughtersTemp_" transient="true"/>
-   <field name="caloTowersTemp_" transient="true"/>
-   <field name="pfCandidatesTemp_" transient="true"/>
+   <field name="genCandidatesTemp_" transient="true"/>
   </class>
-  <ioread sourceClass = "pat::io_v1::GenJet" version="[1-]" targetClass="pat::io_v1::GenJet" source="" target="caloTowersTemp_">
-    <![CDATA[caloTowersTemp_.reset();]]>
-  </ioread>
-  <ioread sourceClass = "pat::io_v1::GenJet" version="[1-]" targetClass="pat::io_v1::GenJet" source="" target="pfCandidatesTemp_">
-    <![CDATA[pfCandidatesTemp_.reset();]]>
+  <ioread sourceClass = "pat::io_v1::GenJet" version="[1-]" targetClass="pat::io_v1::GenJet" source="" target="genCandidatesTemp_">
+    <![CDATA[genCandidatesTemp_.reset();]]>
   </ioread>
   <ioread sourceClass = "pat::io_v1::GenJet" version="[1-]" targetClass="pat::io_v1::GenJet" source="" target="daughtersTemp_">
     <![CDATA[daughtersTemp_.reset();]]>
@@ -441,7 +438,6 @@
   <class name="edm::RefProd<std::vector<pat::io_v1::GenJet> >" />
   <class name="edm::reftobase::Holder<reco::io_v1::Candidate, pat::GenJetRef>" />
   <class name="edm::reftobase::RefHolder<pat::GenJetRef>" />
-  <class name="edm::FwdRef<std::vector<pat::io_v1::GenJet>,pat::io_v1::GenJet,edm::refhelper::FindUsingAdvance<std::vector<pat::io_v1::GenJet>,pat::io_v1::GenJet> >" />
   <class name="edm::refhelper::FindUsingAdvance<std::vector<pat::io_v1::GenJet>,pat::io_v1::GenJet>" />
   <class name="edm::Association<std::vector<pat::io_v1::GenJet> >" />
   <class name="edm::Wrapper<edm::Association<std::vector<pat::io_v1::GenJet> > >" />

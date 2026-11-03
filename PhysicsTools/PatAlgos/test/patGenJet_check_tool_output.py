@@ -2,10 +2,11 @@
 """The collections made by addPatGenJetCollection (patGenJet_test_tool_cfg.py) equal the ones of patGenJets_cff, jet by jet.
 
 Usage: python3 patGenJet_check_tool_output.py tool.root
-  patGenJetsAK4Tool  == patGenJetsAK4                   p4, flavour, daughters, self links
-  packedPatGenJetsAK8PuppiTool == packedPatGenJetsAK8    p4, flavour, daughters, user floats (tau1-4, soft-drop mass, ECFs),
+  patGenJetsAK4Tool  == patGenJetsAK4                   p4, daughters
+  patGenJetsAK4                                         genJetFwdRef().backRef() points into ak4GenJetsNoNu (same product, pt of the entry)
+  packedPatGenJetsAK8PuppiTool == packedPatGenJetsAK8    p4, daughters, user floats (tau1-4, soft-drop mass, ECFs),
                                                          subjets(SoftDropPuppi) keys, groomed mass
-  packedPatGenJetsAK8PuppiTool:SubJets == packedPatGenJetsAK8:SubJets   p4, flavour, user floats (ECFs, tau under the other name)
+  packedPatGenJetsAK8PuppiTool:SubJets == packedPatGenJetsAK8:SubJets   p4, user floats (ECFs, tau under the other name)
 Exit code 0 if everything is equal.
 """
 import sys
@@ -17,9 +18,10 @@ ROOT.gSystem.Load("libDataFormatsPatCandidates.so")
 from DataFormats.FWLite import Events, Handle
 
 H = Handle("std::vector<pat::GenJet>")
+G = Handle("std::vector<reco::GenJet>")
 events = Events(sys.argv[1])
 bad = []
-count = {"ak4": 0, "fat": 0, "sub": 0}
+count = {"ak4": 0, "fat": 0, "sub": 0, "ref": 0}
 
 def get(ev, label):
     ev.getByLabel(label, H) if ":" not in label else ev.getByLabel(*label.split(":"), H)
@@ -29,10 +31,6 @@ def same_jet(a, b, what, floats=()):
     for f in ("pt", "eta", "phi", "mass"):
         if getattr(a, f)() != getattr(b, f)():
             bad.append("%s %s differs" % (what, f))
-    if (a.hadronFlavour(), a.partonFlavour()) != (b.hadronFlavour(), b.partonFlavour()):
-        bad.append("%s flavour differs" % what)
-    if a.jetFlavourInfo().getbHadrons().size() != b.jetFlavourInfo().getbHadrons().size():
-        bad.append("%s nB differs" % what)
     if [p.key() for p in a.daughterPtrVector()] != [p.key() for p in b.daughterPtrVector()]:
         bad.append("%s daughters differ" % what)
     for fa, fb in floats:
@@ -42,8 +40,25 @@ def same_jet(a, b, what, floats=()):
 TAU = ["NjettinessAK8Puppi:tau%d" % i for i in (1, 2, 3, 4)]
 ECF = ["nb%d%s:ecf%s" % (b, "AK8PuppiSoftDrop", n) for b in (1, 2) for n in ("N2", "N3")]
 SECF = ["nb%d%s:ecf%s" % (b, "AK8PuppiSoftDropSubjets", n) for b in (1, 2) for n in ("N2", "N3")]
+def check_back_refs(ev, jets, what):
+    """backRef of genJetFwdRef = the entry of ak4GenJetsNoNu the jet was made from (same index in pt order, same pt)."""
+    ev.getByLabel("ak4GenJetsNoNu", G)
+    gen = G.product()
+    for i, j in enumerate(jets):
+        l = j.genJetFwdRef()
+        b = l.backRef()
+        # b.get() resolves the product ID through the event: it is a gen jet of ak4GenJetsNoNu (the only product of that type in the file)
+        if b.isNull() or b.key() >= len(gen) or b.get() is None or abs(b.get().pt() - j.pt()) > 1e-4 * max(1., j.pt()):
+            bad.append("%s[%d] genJetFwdRef back ref not in ak4GenJetsNoNu" % (what, i)); continue
+        if abs(gen[b.key()].pt() - j.pt()) > 1e-4 * max(1., j.pt()):
+            bad.append("%s[%d] back ref pt %f != jet pt %f" % (what, i, gen[b.key()].pt(), j.pt()))
+        if l.ref().isNull() or l.ref().id() != b.id() or l.ref().key() != b.key():
+            bad.append("%s[%d] forward ref != back ref (no genJetForwardMap)" % (what, i))
+        count["ref"] += 1
+
 for ev in events:
     a, b = get(ev, "patGenJetsAK4Tool"), get(ev, "patGenJetsAK4")
+    check_back_refs(ev, b, "patGenJetsAK4")
     if len(a) != len(b):
         bad.append("AK4 sizes %d %d" % (len(a), len(b)))
     for i, (x, y) in enumerate(zip(a, b)):

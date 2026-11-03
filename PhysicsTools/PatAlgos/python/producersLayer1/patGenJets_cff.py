@@ -1,8 +1,7 @@
 """pat::GenJet chain.
 
 Input: the generator jets MiniAOD already uses, made in the same job:
-  ak4GenJetsNoNu, ak8GenJetsNoNu, ak8GenJetsNoNuSoftDrop (+ SubJets), ak4GenJetFlavourInfos,
-  selectedHadronsAndPartonsForGenJetsFlavourInfos, packedGenParticles (+ its association to genParticles).
+  ak4GenJetsNoNu, ak8GenJetsNoNu, ak8GenJetsNoNuSoftDrop (+ SubJets), packedGenParticles (+ its association to genParticles).
 None of them is defined here, nothing existing is modified.
 
 Names: every helper module is called <reco label>ForPatGenJets; the producers strip that postfix (labelPostfixesToStrip), so the
@@ -25,7 +24,7 @@ from PhysicsTools.PatAlgos.tools.patGenJetHelpers import STRIP, userDataPSet
 # helpers (userDataPSet) are in patGenJetHelpers.py
 
 # ---------------------------------------------------------------------------------------------------------
-# substructure and flavour modules: weights off (gen jets are unweighted)
+# substructure modules: weights off (gen jets are unweighted)
 
 NjettinessAK8PuppiForPatGenJets = _Njettiness.clone(src='ak8GenJetsNoNu', srcWeights='')
 nb1AK8PuppiSoftDropForPatGenJets = _ecfNbeta1.clone(src='ak8GenJetsNoNuSoftDrop', srcWeights='', cuts=cms.vstring('', '', 'pt > 250'))
@@ -41,21 +40,6 @@ ak8PFJetsPuppiSoftDropMassForPatGenJets = cms.EDProducer("RecoJetDeltaRValueMapP
     value=cms.string('mass'),
 )
 
-# flavour of the fat jets and, in the "SubJets" instance, of the soft-drop subjets (JetFlavourClustering.cc:231, :241)
-ak8GenJetFlavourInfosForPatGenJets = cms.EDProducer("JetFlavourClustering",
-    jets=cms.InputTag('ak8GenJetsNoNu'),
-    groomedJets=cms.InputTag('ak8GenJetsNoNuSoftDrop'),
-    subjets=cms.InputTag('ak8GenJetsNoNuSoftDrop', 'SubJets'),
-    bHadrons=cms.InputTag('selectedHadronsAndPartonsForGenJetsFlavourInfos', 'bHadrons'),
-    cHadrons=cms.InputTag('selectedHadronsAndPartonsForGenJetsFlavourInfos', 'cHadrons'),
-    partons=cms.InputTag('selectedHadronsAndPartonsForGenJetsFlavourInfos', 'physicsPartons'),
-    leptons=cms.InputTag('selectedHadronsAndPartonsForGenJetsFlavourInfos', 'leptons'),
-    jetAlgorithm=cms.string('AntiKt'),
-    rParam=cms.double(0.8),
-    ghostRescaling=cms.double(1e-18),
-    hadronFlavourHasPriority=cms.bool(False),
-)
-
 # ---------------------------------------------------------------------------------------------------------
 # pat::GenJet producers
 
@@ -63,14 +47,12 @@ ak8GenJetFlavourInfosForPatGenJets = cms.EDProducer("JetFlavourClustering",
 patGenJetsAK4 = _patGenJetProducer.clone(
     jetSource='ak4GenJetsNoNu',
     packedGenParticles='packedGenParticles',
-    JetFlavourInfoSource='ak4GenJetFlavourInfos',
     userData=userDataPSet())
 
 # AK8 fat jets: N-subjettiness 1..4 and soft-drop mass as in applySubstructure_cff.py:126-133
 patGenJetsAK8 = _patGenJetProducer.clone(
     jetSource='ak8GenJetsNoNu',
     packedGenParticles='packedGenParticles',
-    JetFlavourInfoSource='ak8GenJetFlavourInfosForPatGenJets',
     userData=userDataPSet(floats=[
         cms.InputTag('NjettinessAK8PuppiForPatGenJets', 'tau1'),
         cms.InputTag('NjettinessAK8PuppiForPatGenJets', 'tau2'),
@@ -90,7 +72,6 @@ selectedPatGenJetsAK8 = _patGenJetSelector.clone(
 patGenJetsAK8SoftDropSubjets = _patGenJetProducer.clone(
     jetSource=cms.InputTag('ak8GenJetsNoNuSoftDrop', 'SubJets'),
     packedGenParticles='packedGenParticles',
-    JetFlavourInfoSource=cms.InputTag('ak8GenJetFlavourInfosForPatGenJets', 'SubJets'),
     userData=userDataPSet(floats=[
         cms.InputTag('nb1AK8PuppiSoftDropSubjetsForPatGenJets', 'ecfN2'),
         cms.InputTag('nb1AK8PuppiSoftDropSubjetsForPatGenJets', 'ecfN3'),
@@ -127,7 +108,6 @@ patGenJetsTask = cms.Task(
     nb1AK8PuppiSoftDropSubjetsForPatGenJets,
     nb2AK8PuppiSoftDropSubjetsForPatGenJets,
     ak8PFJetsPuppiSoftDropMassForPatGenJets,
-    ak8GenJetFlavourInfosForPatGenJets,
     patGenJetsAK4,
     patGenJetsAK8,
     selectedPatGenJetsAK8,

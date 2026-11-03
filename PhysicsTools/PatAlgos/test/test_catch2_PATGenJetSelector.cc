@@ -1,7 +1,7 @@
 // PATGenJetSelector with TestProcessor and hand-made inputs.
 // Checks: cut / cutLoose / nLoose select the same jets as PATGenJetSlimmer on the same (pt-sorted) jets;
-// self links re-pointed to the selector's output; Association old -> new; filter; slimming options
-// off by default and working when switched on.
+// genJetFwdRef and genCandidatesFwdPtr copied unchanged with the jet; no tagInfos product;
+// Association old -> new; filter; slimming options off by default and working when switched on.
 
 #include "DataFormats/PatCandidates/interface/GenJet.h"
 #include "PhysicsTools/PatAlgos/test/PatGenJetTestCommon.h"
@@ -34,10 +34,12 @@ namespace {
   }
 
   // PATGenJetProducer -> PATGenJetSelector on the same inputs
-  std::string selectorConfig(std::string const& args) {
+  // producerArgs: more arguments of the producer (embedGenCandidates, forward maps)
+  std::string selectorConfig(std::string const& args, std::string const& producerArgs = "") {
     return patgenjettest::header(true) +
            "process.patGenJets = cms.EDProducer('PATGenJetProducer', jetSource = cms.InputTag('" + kInputs +
-           ":jets'), packedGenParticles = cms.InputTag('" + kInputs + "'), daughterOrder = cms.string('key'))\n" +
+           ":jets'), packedGenParticles = cms.InputTag('" + kInputs + "'), daughterOrder = cms.string('key')" +
+           producerArgs + ")\n" +
            "process.toTest = cms.EDFilter('PATGenJetSelector', src = cms.InputTag('patGenJets'), " + args + ")\n" +
            "process.moduleToTest(process.toTest, cms.Task(process." + kInputs + ", process.patGenJets))\n";
   }
@@ -66,20 +68,20 @@ TEST_CASE("PATGenJetSelector: same selection as PATGenJetSlimmer", "[PATGenJetSe
   CHECK_THAT(slimmerPts(kCuts), Catch::Matchers::Approx(std::vector<double>{80., 50., 30.}));
 }
 
-TEST_CASE("PATGenJetSelector: self links, association, content", "[PATGenJetSelector]") {
+TEST_CASE("PATGenJetSelector: back refs, association, content", "[PATGenJetSelector]") {
   edm::test::TestProcessor tester(selectorConfig(kCuts));
   auto event = tester.test();
   auto const& out = *event.get<std::vector<pat::GenJet>>();
   REQUIRE(out.size() == 3);
 
-  // the copies pointed into the producer output; now they point into the selector output
-  CHECK(patgenjettest::badSelfLinks(out) == 0);
+  // genJetFwdRef is copied with the jet: back ref = the input reco::GenJet (not the producer or selector output)
+  CHECK(patgenjettest::badBackRefs(out) == 0);
 
   // Association old -> new, as PATGenJetSlimmer: input i -> output i for i < 3, input 3 (pt 12) -> null
   auto const& assoc = *event.get<edm::Association<std::vector<pat::GenJet>>>();
   REQUIRE(assoc.ids().size() == 1);
   const edm::ProductID inputId = assoc.ids()[0].first;
-  CHECK(inputId != out[0].genJetFwdRef().ref().id());
+  CHECK(inputId != out[0].genJetFwdRef().backRef().id());
   for (unsigned i = 0; i < 3; ++i) {
     auto const r = assoc.get(inputId, i);
     REQUIRE(r.isNonnull());
@@ -92,8 +94,37 @@ TEST_CASE("PATGenJetSelector: self links, association, content", "[PATGenJetSele
   CHECK(out[0].emEnergy() == Approx(20.));
   CHECK(out[0].numberOfDaughters() == 3);
   CHECK(out[0].originalObjectRef().key() == 0);  // sorted inputs: the "80" jet is input 0
-  CHECK(event.get<edm::OwnVector<reco::BaseTagInfo>>("tagInfos")->empty());
+  CHECK_THROWS_AS(event.get<edm::OwnVector<reco::BaseTagInfo>>("tagInfos")->size(), cms::Exception);  // product is gone
   CHECK(event.modulePassed());
+}
+
+TEST_CASE("PATGenJetSelector: genJetFwdRef and genCandidatesFwdPtr unchanged", "[PATGenJetSelector]") {
+  const std::string producerArgs = ", genJetForwardMap = cms.InputTag('" + kInputs +
+                                   ":jetmap'), embedGenCandidates = cms.bool(True), genCandidatesForwardMaps = "
+                                   "cms.VInputTag('" +
+                                   kInputs + ":map1', '" + kInputs + ":map2')";
+  edm::test::TestProcessor tester(selectorConfig(kCuts, producerArgs));
+  auto event = tester.test();
+  auto const& out = *event.get<std::vector<pat::GenJet>>();
+  REQUIRE(out.size() == 3);  // jets 80, 50, 30
+  CHECK(patgenjettest::badBackRefs(out) == 0);
+  // expected values as the producer made them (the selector does not re-point anything)
+  const std::vector<std::vector<int>> expectedStage2 = {{0, 1, 5, 9}, {4, 3}, {2, 6}};  // keys of the forward Ptrs
+  const std::vector<std::vector<unsigned>> expectedBack = {{1, 5, 8, 9}, {7, 0}, {3, 2}};
+  for (size_t i = 0; i < out.size(); ++i) {
+    auto const& j = out[i];
+    INFO("jet pt " << j.pt());
+    auto const& l = j.genJetFwdRef();
+    REQUIRE(l.ref().isNonnull());
+    CHECK(l.ref().key() == static_cast<unsigned>(patgenjettest::expectedJetFwdKey(j.pt())));
+    CHECK(l.ref().id() != l.backRef().id());
+    auto const& fp = j.genCandidatesFwdPtr();
+    REQUIRE(fp.size() == expectedBack[i].size());
+    for (size_t k = 0; k < fp.size(); ++k) {
+      CHECK(fp[k].backPtr().key() == expectedBack[i][k]);
+      CHECK(fp[k].ptr().key() == static_cast<unsigned>(expectedStage2[i][k]));
+    }
+  }
 }
 
 TEST_CASE("PATGenJetSelector: filter", "[PATGenJetSelector]") {
@@ -125,7 +156,7 @@ TEST_CASE("PATGenJetSelector: slimming options", "[PATGenJetSelector]") {
     CHECK(j.hadEnergy() == 0.f);
     CHECK(j.chargedHadronMultiplicity() == 0);
   }
-  CHECK(patgenjettest::badSelfLinks(out) == 0);
+  CHECK(patgenjettest::badBackRefs(out) == 0);
 }
 
 TEST_CASE("PATGenJetSelector: clearDaughters alias of PATGenJetSlimmer", "[PATGenJetSelector]") {
@@ -136,7 +167,7 @@ TEST_CASE("PATGenJetSelector: clearDaughters alias of PATGenJetSlimmer", "[PATGe
     REQUIRE(out.size() == 3);
     for (auto const& j : out)
       CHECK(j.numberOfDaughters() == 0);
-    CHECK(patgenjettest::badSelfLinks(out) == 0);
+    CHECK(patgenjettest::badBackRefs(out) == 0);
   }
   {
     edm::test::TestProcessor tester(selectorConfig(kCuts + ", clearDaughters = cms.bool(False)"));

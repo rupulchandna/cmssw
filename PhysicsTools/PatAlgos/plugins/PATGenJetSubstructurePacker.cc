@@ -8,12 +8,12 @@
 // for each algorithm (VPSet "algos"):
 //   1. subjet output (instance subjetInstance): for each groomed jet in input order, each daughter
 //      (a Ptr into the subjet source) is matched to the pat::GenJet subjet whose originalObjectRef()
-//      equals it (BoostedJetMerger's FindCorrectedSubjet), copied in that order, self links set.
+//      equals it (BoostedJetMerger's FindCorrectedSubjet), copied in that order.
 //   2. fat jets: the first groomed jet within distMax (JetSubstructurePacker.cc:56-70) gives
 //      - user floats from the groomedUserFloats value maps (ECFs), label = encoded tag minus postfixes
 //      - the subjet Ptrs, pointing into this module's OWN subjet output (getRefBeforePut, as
 //        BoostedJetMerger.cc:18), attached with addSubjets(…, label)
-//   3. fat-jet self links set; Association old -> new written.
+//   3. Association old -> new written.
 //   4. fixDaughters (default False): replace the constituents covered by a subjet with that subjet,
 //      as JetSubstructurePacker.cc:83-111 (no packed-candidate mapping needed: gen constituents are
 //      already packed in both the fat jets and the subjets).
@@ -168,7 +168,6 @@ void PATGenJetSubstructurePacker::produce(edm::Event& iEvent, const edm::EventSe
         subjetPtrsOfGroomed[g].emplace_back(h_subOut.id(), subjetsOut->size() - 1, h_subOut.productGetter());
       }
     }
-    pat::genjethelpers::setSelfLinks(*subjetsOut, h_subOut);
 
     // ---- 2. fat jets: first groomed jet within distMax (JetSubstructurePacker.cc:53-74)
     for (auto& fat : *outputs) {
@@ -191,9 +190,7 @@ void PATGenJetSubstructurePacker::produce(edm::Event& iEvent, const edm::EventSe
     iEvent.put(std::move(subjetsOut), algo.subjetInstance);
   }
 
-  // ---- 3. self links and association
-  const edm::RefProd<pat::GenJetCollection> h_out = iEvent.getRefBeforePut<pat::GenJetCollection>();
-  pat::genjethelpers::setSelfLinks(*outputs, h_out);
+  // ---- 3. association
   std::vector<int> mapping(jetHandle->size());
   for (size_t i = 0; i < mapping.size(); ++i)
     mapping[i] = i;

@@ -3,43 +3,41 @@
 // Package:     DataFormats/PatCandidates
 // Class:       pat::GenJet (pat::io_v1::GenJet)
 //
-// Analysis-level generator jet. Mirrors the public API of pat::Jet
-// (DataFormats/PatCandidates/interface/Jet.h, CMSSW_20_1_0_pre3) on top of reco::GenJet,
-// so code and string expressions written for pat::Jet work on generator jets.
+// Analysis-level generator jet: PATObject<reco::GenJet> with the parts of the pat::Jet API
+// (DataFormats/PatCandidates/interface/Jet.h, CMSSW_20_1_0_pre3) that make sense for generator jets.
+// Not provided (no generator meaning): b tagging and tag infos, jet ID, calo/JPT/PF specifics and the
+// jet-type queries, calorimeter, HF/HO and JPT track quantities, calo-tower and PF-candidate constituents,
+// jet flavour (available from the JetFlavourInfoMatchingCollection of the generator jets).
 // Behaviour on missing data:
-//   - where pat::Jet returns a value for missing data, the same value (e.g. bDiscriminator -1000)
-//   - where pat::Jet throws: JEC factor 1 at every level, energies 0, groomedMass -1,
-//     other numbers 0, lists empty, setters no-op (generic PAT lookups keep throwing)
-//   - PF-named energies/fractions/multiplicities that reco::GenJet::Specific fills are real
-//   - genJet() returns the jet itself; genJetFwdRef() is a self link set by the module that writes
-//     the collection
+//   - JEC: factor 1 at every level, correctedJet/correctedP4 return the jet itself
+//   - groomedMass -1, missing subjet collections empty
+//   - PF-named energies/fractions/multiplicities are filled from reco::GenJet::Specific
+//   - genJet() returns the jet itself; genJetFwdRef() points to the reco::GenJet the jet was made from
+//   - genCandidates(): generator particles stored with setGenCandidates, else empty
 //   - no scouting constructor
-// Comments "copy" / "neutral" / "mapped" say where a body comes from.
+// Comments "copy" / "mapped" say where a body comes from.
 
 #ifndef DataFormats_PatCandidates_GenJet_h
 #define DataFormats_PatCandidates_GenJet_h
 
-// pat::Jet header: reused for the shared typedefs (pat::CaloSpecific, pat::PFSpecific,
-// pat::TagInfoFwdPtrCollection, ...) and the b-tag tag-info types named by the tagInfo* getters.
-#include "DataFormats/PatCandidates/interface/Jet.h"
 #include "DataFormats/PatCandidates/interface/PATObject.h"
 #include "DataFormats/PatCandidates/interface/JetCorrFactors.h"
 #include "DataFormats/JetReco/interface/GenJet.h"
 #include "DataFormats/JetReco/interface/GenJetCollection.h"
-#include "DataFormats/JetMatching/interface/JetFlavourInfo.h"
-#include "DataFormats/JetReco/interface/JetID.h"
+#include "DataFormats/HepMCCandidate/interface/GenParticle.h"
+#include "DataFormats/HepMCCandidate/interface/GenParticleFwd.h"
+#include "DataFormats/TrackReco/interface/TrackFwd.h"
 #include "DataFormats/Common/interface/Ptr.h"
 #include "DataFormats/Common/interface/Ref.h"
 #include "DataFormats/Common/interface/RefVector.h"
+#include "DataFormats/Common/interface/FwdPtr.h"
 #include "DataFormats/Common/interface/FwdRef.h"
 #include "DataFormats/Common/interface/AtomicPtrCache.h"
 
 #include <algorithm>
-#include <typeinfo>
 #include <numeric>
 #include <ostream>
 #include <string>
-#include <utility>
 #include <vector>
 
 namespace pat {
@@ -50,7 +48,6 @@ namespace pat {
   typedef std::vector<GenJet> GenJetCollection;
   typedef edm::Ref<GenJetCollection> GenJetRef;
   typedef edm::RefVector<GenJetCollection> GenJetRefVector;
-  typedef edm::FwdRef<GenJetCollection> GenJetFwdRef;
   /// counterpart of pat::JetPtrCollection (Jet.h:83) for generator subjets
   typedef std::vector<edm::Ptr<pat::GenJet> > GenJetPtrCollection;
 }  // namespace pat
@@ -67,7 +64,8 @@ namespace pat {
     public:
       // ---------------------------------------------------------------- constructors
       GenJet();
-      GenJet(const reco::GenJet& aJet);                     // implicit, as pat::Jet
+      GenJet(const reco::GenJet& aJet);  // implicit, as pat::Jet
+      /// from a reco::GenJet in a std::vector<reco::GenJet>: genJetFwdRef() points to it
       GenJet(const edm::RefToBase<reco::GenJet>& aJetRef);  // implicit, as pat::Jet
       GenJet(const edm::Ptr<reco::GenJet>& aJetRef);        // implicit, as pat::Jet
       GenJet(const edm::RefToBase<pat::GenJet>& aJetRef);   // implicit, as pat::Jet
@@ -80,9 +78,6 @@ namespace pat {
       const reco::GenParticle* genParton() const { return genParticle(); }
       /// the jet itself
       const reco::GenJet* genJet() const { return this; }
-      int partonFlavour() const { return jetFlavourInfo_.getPartonFlavour(); }
-      int hadronFlavour() const { return jetFlavourInfo_.getHadronFlavour(); }
-      const reco::JetFlavourInfo& jetFlavourInfo() const { return jetFlavourInfo_; }
 
       // ---------------------------------------------------------------- JEC
       // A generator jet is its own uncorrected level: factor 1 at every level, for every set.
@@ -108,7 +103,7 @@ namespace pat {
                       const unsigned int& /*set*/ = 0) const {
         return 1.f;
       }
-      /// returns a pat::GenJet copy (signature adapted from pat::Jet, )
+      /// returns a pat::GenJet copy (signature adapted from pat::Jet)
       GenJet correctedJet(const std::string& level,
                           const std::string& flavor = "none",
                           const std::string& set = "") const;
@@ -129,86 +124,16 @@ namespace pat {
       void scaleEnergy(double fScale) override { scaleEnergy(fScale, "Unscaled"); }
       void scaleEnergy(double fScale, const std::string& /*level*/) { setP4(p4() * fScale); }
 
-      // ---------------------------------------------------------------- b tagging (copy of pat::Jet)
-      float bDiscriminator(const std::string& theLabel) const;  // -1000 if absent (Jet.cc:413)
-      const std::vector<std::pair<std::string, float> >& getPairDiscri() const { return pairDiscriVector_; }
-      std::vector<std::string> const& tagInfoLabels() const { return tagInfoLabels_; }
-      bool hasTagInfo(const std::string label) const { return tagInfo(label) != nullptr; }
-      const reco::BaseTagInfo* tagInfo(const std::string& label) const;
-      const reco::CandIPTagInfo* tagInfoCandIP(const std::string& label = "") const;
-      const reco::TrackIPTagInfo* tagInfoTrackIP(const std::string& label = "") const;
-      const reco::CandSoftLeptonTagInfo* tagInfoCandSoftLepton(const std::string& label = "") const;
-      const reco::SoftLeptonTagInfo* tagInfoSoftLepton(const std::string& label = "") const;
-      const reco::CandSecondaryVertexTagInfo* tagInfoCandSecondaryVertex(const std::string& label = "") const;
-      const reco::SecondaryVertexTagInfo* tagInfoSecondaryVertex(const std::string& label = "") const;
-      const reco::BoostedDoubleSVTagInfo* tagInfoBoostedDoubleSV(const std::string& label = "") const;
-      const reco::PixelClusterTagInfo* tagInfoPixelCluster(const std::string& label = "") const;
-      void addBDiscriminatorPair(const std::pair<std::string, float>& thePair) { pairDiscriVector_.push_back(thePair); }
-      void addTagInfo(const std::string& label, const TagInfoFwdPtrCollection::value_type& info);
-
       // ---------------------------------------------------------------- tracks (copy; never filled)
       float jetCharge() const { return jetCharge_; }
       const reco::TrackRefVector& associatedTracks() const { return associatedTracks_; }
       void setJetCharge(float jetCharge) { jetCharge_ = jetCharge; }
       void setAssociatedTracks(const reco::TrackRefVector& tracks) { associatedTracks_ = tracks; }
 
-      // ---------------------------------------------------------------- embedding setters (copy)
-      void setCaloTowers(const CaloTowerFwdPtrCollection& caloTowers);
-      void setPFCandidates(const PFCandidateFwdPtrCollection& pfCandidates);
+      // ---------------------------------------------------------------- embedding setters
+      /// generator-particle counterpart of pat::Jet::setPFCandidates (Jet.cc)
+      void setGenCandidates(const reco::GenParticleFwdPtrVector& genCandidates);
       void setGenParton(const reco::GenParticleRef& gp, bool embed = false) { setGenParticleRef(gp, embed); }
-      /// type adapted: the link is to a pat::GenJet collection
-      void setGenJetRef(const GenJetFwdRef& gj) { genJetFwdRef_ = gj; }
-      void setPartonFlavour(int partonFl) { jetFlavourInfo_.setPartonFlavour(partonFl); }
-      void setHadronFlavour(int hadronFl) { jetFlavourInfo_.setHadronFlavour(hadronFl); }
-      void setJetFlavourInfo(const reco::JetFlavourInfo& jetFlavourInfo) { jetFlavourInfo_ = jetFlavourInfo; }
-      void setJetID(reco::JetID const& id) { jetID_ = id; }
-
-      // ---------------------------------------------------------------- jet type
-      bool isCaloJet() const { return false; }
-      bool isJPTJet() const { return false; }
-      bool isPFJet() const { return false; }
-      bool isBasicJet() const { return true; }
-      bool hasPFSpecific() const { return false; }
-      /// pat::Jet throws "Type Mismatch" (Jet.h:292/298/306); here a static all-zero struct
-      const CaloSpecific& caloSpecific() const;
-      const JPTSpecific& jptSpecific() const;
-      const PFSpecific& pfSpecific() const;
-      /// pat::Jet throws (Jet.h:312/318/324); here no-op
-      void setCaloSpecific(const CaloSpecific&) {}
-      void setJPTSpecific(const JPTSpecific&) {}
-      void setPFSpecific(const PFSpecific&) {}
-
-      // ---------------------------------------------------------------- calo-like
-      float maxEInEmTowers() const { return 0.f; }  // energies 0
-      float maxEInHadTowers() const { return 0.f; }
-      /// mapped: calo-like split of reco::GenJet::Specific (GenJet.h:86, GenJet.h:88)
-      float energyFractionHadronic() const { return energy() > 0 ? hadEnergy() / energy() : 0.f; }
-      float emEnergyFraction() const { return energy() > 0 ? emEnergy() / energy() : 0.f; }
-      float hadEnergyInHB() const { return 0.f; }
-      float hadEnergyInHO() const { return 0.f; }
-      float hadEnergyInHE() const { return 0.f; }
-      float hadEnergyInHF() const { return 0.f; }
-      float emEnergyInEB() const { return 0.f; }
-      float emEnergyInEE() const { return 0.f; }
-      float emEnergyInHF() const { return 0.f; }
-      float towersArea() const { return 0.f; }  //
-      int n90() const { return nCarrying(0.9); }
-      int n60() const { return nCarrying(0.6); }
-      /// embedded tower if set and in range, else a null Ptr (pat::Jet throws for non-tower daughters)
-      CaloTowerPtr getCaloConstituent(unsigned fIndex) const;
-      std::vector<CaloTowerPtr> const& getCaloConstituents() const;  // embedded towers if set, else empty
-
-      // ---------------------------------------------------------------- JPT
-      const reco::TrackRefVector& pionsInVertexInCalo() const { return jptSpecific().pionsInVertexInCalo; }
-      const reco::TrackRefVector& pionsInVertexOutCalo() const { return jptSpecific().pionsInVertexOutCalo; }
-      const reco::TrackRefVector& pionsOutVertexInCalo() const { return jptSpecific().pionsOutVertexInCalo; }
-      const reco::TrackRefVector& muonsInVertexInCalo() const { return jptSpecific().muonsInVertexInCalo; }
-      const reco::TrackRefVector& muonsInVertexOutCalo() const { return jptSpecific().muonsInVertexOutCalo; }
-      const reco::TrackRefVector& muonsOutVertexInCalo() const { return jptSpecific().muonsOutVertexInCalo; }
-      const reco::TrackRefVector& elecsInVertexInCalo() const { return jptSpecific().elecsInVertexInCalo; }
-      const reco::TrackRefVector& elecsInVertexOutCalo() const { return jptSpecific().elecsInVertexOutCalo; }
-      const reco::TrackRefVector& elecsOutVertexInCalo() const { return jptSpecific().elecsOutVertexInCalo; }
-      float elecMultiplicity() const { return 0.f; }
 
       // ---------------------------------------------------------------- PF-named
       // NOT redeclared (inherited from reco::GenJet with identical signature, GenJet.h:95-104):
@@ -229,26 +154,16 @@ namespace pat {
       float electronEnergy() const { return chargedEmEnergy(); }
       float electronEnergyFraction() const { return electronEnergy() / energy(); }
       float muonEnergyFraction() const { return muonEnergy() / energy(); }
-      /// HF and HO energies 0, so their fractions are 0
-      float HFHadronEnergy() const { return 0.f; }
-      float HFHadronEnergyFraction() const { return 0.f; }
-      float HFEMEnergy() const { return 0.f; }
-      float HFEMEnergyFraction() const { return 0.f; }
       /// mapped: photon = neutral EM, electron = charged EM multiplicity (GenJet.h:102-103)
       int photonMultiplicity() const { return neutralEmMultiplicity(); }
       int electronMultiplicity() const { return chargedEmMultiplicity(); }
-      int HFHadronMultiplicity() const { return 0; }  //
+      int HFHadronMultiplicity() const { return 0; }
       int HFEMMultiplicity() const { return 0; }
       /// mapped: m_MuonEnergy
       float chargedMuEnergy() const { return muonEnergy(); }
       float chargedMuEnergyFraction() const { return chargedMuEnergy() / energy(); }
       /// mapped: m_NeutralHadronMultiplicity + m_NeutralEmMultiplicity
       int neutralMultiplicity() const { return neutralHadronMultiplicity() + neutralEmMultiplicity(); }
-      float hoEnergy() const { return 0.f; }
-      float hoEnergyFraction() const { return 0.f; }
-      /// embedded candidate if set and in range, else a null Ptr (pat::Jet throws for non-PF daughters)
-      reco::PFCandidatePtr getPFConstituent(unsigned fIndex) const;
-      std::vector<reco::PFCandidatePtr> const& getPFConstituents() const;  // embedded if set, else empty
 
       // ---------------------------------------------------------------- constituents (copy, subjet-aware)
       const reco::Candidate* daughter(size_t i) const override;
@@ -261,20 +176,17 @@ namespace pat {
         daughtersTemp_.reset();
       }
 
-      // ---------------------------------------------------------------- jet ID, forward pointers
-      reco::JetID const& jetID() const { return jetID_; }
-      CaloTowerFwdPtrVector const& caloTowersFwdPtr() const { return caloTowersFwdPtr_; }
-      reco::PFCandidateFwdPtrVector const& pfCandidatesFwdPtr() const { return pfCandidatesFwdPtr_; }
-      /// forward and back ref both point to this jet's own entry in its collection.
-      /// Return type adapted from edm::FwdRef<reco::GenJetCollection> (Jet.h:520).
-      GenJetFwdRef const& genJetFwdRef() const { return genJetFwdRef_; }
-      TagInfoFwdPtrCollection const& tagInfosFwdPtr() const { return tagInfosFwdPtr_; }
+      // ---------------------------------------------------------------- generator particles, forward pointers
+      /// forward Ptrs of the stored generator particles, as pat::Jet::getPFConstituents (dereference
+      /// genCandidatesFwdPtr() to fall back to the back Ptr); empty if none were set
+      std::vector<reco::GenParticlePtr> const& genCandidates() const;
+      reco::GenParticleFwdPtrVector const& genCandidatesFwdPtr() const { return genCandidatesFwdPtr_; }
+      /// forward and back ref: the reco::GenJet the jet was made from (null for a jet built from an object)
+      edm::FwdRef<reco::GenJetCollection> const& genJetFwdRef() const { return genJetFwdRef_; }
       /// as pat::Jet inside the range; out of range: no-op instead of OutOfRange
-      void updateFwdCaloTowerFwdPtr(unsigned int index, const edm::Ptr<CaloTower>& updateFwd);
-      void updateFwdPFCandidateFwdPtr(unsigned int index, const edm::Ptr<reco::PFCandidate>& updateFwd);
-      void updateFwdTagInfoFwdPtr(unsigned int index, const edm::Ptr<reco::BaseTagInfo>& updateFwd);
-      void updateFwdGenJetFwdRef(GenJetRef updateRef) {
-        genJetFwdRef_ = GenJetFwdRef(updateRef, genJetFwdRef_.backRef());
+      void updateFwdGenCandidateFwdPtr(unsigned int index, const reco::GenParticlePtr& updateFwd);
+      void updateFwdGenJetFwdRef(reco::GenJetRef updateRef) {
+        genJetFwdRef_ = edm::FwdRef<reco::GenJetCollection>(updateRef, genJetFwdRef_.backRef());
       }
 
       friend std::ostream& reco::operator<<(std::ostream& out, const pat::GenJet& obj);
@@ -305,11 +217,9 @@ namespace pat {
       //   call it as reco::GenJet::genParticle(c).
 
     protected:
-      // ---- embedding (kept so that the mirrored setters/getters behave as in pat::Jet)
-      edm::AtomicPtrCache<std::vector<CaloTowerPtr> > caloTowersTemp_;  // transient
-      CaloTowerFwdPtrVector caloTowersFwdPtr_;
-      edm::AtomicPtrCache<std::vector<reco::PFCandidatePtr> > pfCandidatesTemp_;  // transient
-      reco::PFCandidateFwdPtrVector pfCandidatesFwdPtr_;
+      // ---- embedding
+      edm::AtomicPtrCache<std::vector<reco::GenParticlePtr> > genCandidatesTemp_;  // transient
+      reco::GenParticleFwdPtrVector genCandidatesFwdPtr_;
 
       // ---- substructure
       std::vector<pat::GenJetPtrCollection> subjetCollections_;
@@ -317,41 +227,13 @@ namespace pat {
       edm::AtomicPtrCache<std::vector<reco::CandidatePtr> > daughtersTemp_;  // transient
 
       // ---- MC
-      GenJetFwdRef genJetFwdRef_;  // self link, set by the module that puts the collection
-      reco::JetFlavourInfo jetFlavourInfo_;
-
-      // ---- b tagging
-      std::vector<std::pair<std::string, float> > pairDiscriVector_;
-      std::vector<std::string> tagInfoLabels_;
-      TagInfoFwdPtrCollection tagInfosFwdPtr_;
+      edm::FwdRef<reco::GenJetCollection> genJetFwdRef_;  // the reco::GenJet the jet was made from
 
       // ---- tracks
       float jetCharge_;
       reco::TrackRefVector associatedTracks_;
 
-      // ---- id
-      reco::JetID jetID_;
-
-      // Not stored (pat::Jet members with no generator meaning): jec_, currentJECSet_, currentJECLevel_,
-      // currentJECFlavor_, specificCalo_, specificJPT_, specificPF_, genJet_, genJetRef_, tagInfos_,
-      // caloTowers_, pfCandidates_, embeddedCaloTowers_, embeddedPFCandidates_.
-
     private:
-      /// copy of Jet.h:670 without the legacy OwnVector branch
-      template <typename T>
-      const T* tagInfoByType() const {
-        for (size_t i = 0, n = tagInfosFwdPtr_.size(); i < n; ++i) {
-          reco::BaseTagInfo const* baseTagInfo = tagInfosFwdPtr_[i].get();
-          if (baseTagInfo != nullptr && typeid(*baseTagInfo) == typeid(T)) {
-            return static_cast<const T*>(baseTagInfo);
-          }
-        }
-        return nullptr;
-      }
-      template <typename T>
-      const T* tagInfoByTypeOrLabel(const std::string& label = "") const {
-        return (label.empty() ? tagInfoByType<T>() : dynamic_cast<const T*>(tagInfo(label)));
-      }
       static double sumMass(pat::GenJetPtrCollection const& sub) {
         return sub.empty() ? -1.0
                            : std::accumulate(sub.begin(),
@@ -361,9 +243,8 @@ namespace pat {
                                                 edm::Ptr<pat::GenJet> const& b) { return a + b->p4(); })
                                  .mass();
       }
-      void cacheCaloTowers() const;    // embedded FwdPtrs only; no throw
-      void cachePFCandidates() const;  // embedded FwdPtrs only; no throw
-      void cacheDaughters() const;     // copy of Jet.cc:616
+      void cacheGenCandidates() const;  // stored FwdPtrs only; no throw
+      void cacheDaughters() const;      // copy of Jet.cc:616
       static pat::GenJetPtrCollection const& emptySubjets();
     };
   }  // namespace io_v1

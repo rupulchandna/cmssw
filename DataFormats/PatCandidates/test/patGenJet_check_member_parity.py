@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
 """Member parity check for pat::GenJet.
 
-Uses ROOT/cling reflection of the built dictionaries (no text parsing):
-every public member name of pat::io_v1::Jet and of PATObject<reco::io_v1::Jet>
-must exist as a public member (declared or inherited) of pat::io_v1::GenJet.
-Constructor/destructor names are mapped Jet -> GenJet. The only allowed exception
-is the scouting constructor Jet(const Run3ScoutingPFJet&), which
-is checked to be absent. Member templates (userData<T>, addUserData<T>) and the
-free operator<< are invisible to reflection; they are checked by compiling a snippet.
+Uses ROOT/cling reflection of the built dictionaries (no text parsing).
+pat::GenJet keeps the pat::Jet interface except for the members that have no generator meaning:
+  (a) every member in REMOVED (b tagging, calo tower / PF / JPT specifics, flavour, jet ID, self link,
+      HF/HO and calo-tower quantities, ...) must not be declared by pat::io_v1::GenJet;
+  (b) every other public member name of pat::io_v1::Jet and of PATObject<reco::io_v1::Jet> must exist
+      as a public member (declared or inherited) of pat::io_v1::GenJet (the "kept" set).
+      Constructor/destructor names are mapped Jet -> GenJet. The only allowed exception
+      is the scouting constructor Jet(const Run3ScoutingPFJet&), which is checked to be absent;
+  (c) the generator constituent members setGenCandidates, genCandidates, genCandidatesFwdPtr and
+      updateFwdGenCandidateFwdPtr (the counterparts of the pat::Jet PF candidate members) must exist.
+Member templates (userData<T>, addUserData<T>) and the free operator<< are invisible to reflection;
+they are checked by compiling a snippet.
 
-Informational: argument lists of pat::Jet members that pat::GenJet has under the same
+Informational: argument lists of kept pat::Jet members that pat::GenJet has under the same
 name but with different argument types (expected: GenJet types instead of Jet ones).
 
 Run under cmsenv:  python3 patGenJet_check_member_parity.py   (exit code 0 = pass)
@@ -54,10 +59,63 @@ def mapped(name, origin):
             "~PATObject<reco::io_v1::Jet>": "~GenJet", "~PATObject": "~GenJet"}.get(name, name)
 
 
+# Members removed from pat::GenJet (no generator meaning). They must not be declared by pat::GenJet.
+REMOVED = {
+    # b tagging
+    "bDiscriminator", "getPairDiscri", "tagInfoLabels", "hasTagInfo", "tagInfo", "tagInfoCandIP", "tagInfoTrackIP",
+    "tagInfoCandSoftLepton", "tagInfoSoftLepton", "tagInfoCandSecondaryVertex", "tagInfoSecondaryVertex",
+    "tagInfoBoostedDoubleSV", "tagInfoPixelCluster", "addBDiscriminatorPair", "addTagInfo", "tagInfosFwdPtr",
+    "updateFwdTagInfoFwdPtr",
+    # calo tower / PF candidate constituents
+    "setCaloTowers", "setPFCandidates", "getCaloConstituent", "getCaloConstituents", "getPFConstituent",
+    "getPFConstituents", "caloTowersFwdPtr", "pfCandidatesFwdPtr", "updateFwdCaloTowerFwdPtr",
+    "updateFwdPFCandidateFwdPtr",
+    # self link
+    "setGenJetRef",
+    # flavour
+    "partonFlavour", "hadronFlavour", "jetFlavourInfo", "setPartonFlavour", "setHadronFlavour", "setJetFlavourInfo",
+    # jet ID
+    "jetID", "setJetID",
+    # jet type and the Calo/JPT/PF specifics
+    "isCaloJet", "isJPTJet", "isPFJet", "isBasicJet", "hasPFSpecific", "caloSpecific", "jptSpecific", "pfSpecific",
+    "setCaloSpecific", "setJPTSpecific", "setPFSpecific",
+    # calo-tower quantities
+    "maxEInEmTowers", "maxEInHadTowers", "energyFractionHadronic", "emEnergyFraction", "hadEnergyInHB",
+    "hadEnergyInHO", "hadEnergyInHE", "hadEnergyInHF", "emEnergyInEB", "emEnergyInEE", "emEnergyInHF", "towersArea",
+    "n90", "n60",
+    # JPT track lists
+    "pionsInVertexInCalo", "pionsInVertexOutCalo", "pionsOutVertexInCalo", "muonsInVertexInCalo",
+    "muonsInVertexOutCalo", "muonsOutVertexInCalo", "elecsInVertexInCalo", "elecsInVertexOutCalo",
+    "elecsOutVertexInCalo", "elecMultiplicity",
+    # HF and HO energies
+    "HFHadronEnergy", "HFHadronEnergyFraction", "HFEMEnergy", "HFEMEnergyFraction", "hoEnergy", "hoEnergyFraction",
+}
+# New on pat::GenJet: the generator constituents, as pat::Jet has the PF candidates.
+ADDED = {"setGenCandidates", "genCandidates", "genCandidatesFwdPtr", "updateFwdGenCandidateFwdPtr"}
+
 failures = []
 infos = []
+
+# (a) every REMOVED member is not declared by pat::GenJet itself (or PATObject<reco::GenJet>).
+# A removed name that a reco base class still provides would not be a pat::GenJet member.
+genjet_own = public_methods("pat::io_v1::GenJet", inherited=False)
+genjet_patobj = public_methods("pat::PATObject<reco::GenJet>", inherited=False)
+for name in sorted(REMOVED):
+    if name in genjet_own or name in genjet_patobj:
+        failures.append(f"removed member {name} is still declared on pat::GenJet")
+    elif name in genjet:
+        infos.append(f"removed member {name} is not declared by pat::GenJet but inherited from a reco base class")
+
+# (c) the new generator constituent members
+for name in sorted(ADDED):
+    if name not in genjet_own:
+        failures.append(f"new member {name} missing on pat::GenJet")
+
+# (b) every other pat::Jet / PATObject<reco::Jet> member is kept
 for origin, names in (("Jet", jet), ("PATObject<reco::Jet>", patobj)):
     for name, sigs in sorted(names.items()):
+        if name in REMOVED:
+            continue
         target = mapped(name, origin)
         if target not in genjet:
             failures.append(f"{origin}::{name} missing on pat::GenJet")
@@ -107,7 +165,7 @@ EXPECTED_SWAPS = {
     "Jet(const edm::Ptr<pat::Jet>&)", "Jet(const edm::Ptr<reco::Jet>&)", "Jet(const edm::RefToBase<pat::Jet>&)",
     "Jet(const edm::RefToBase<reco::Jet>&)", "Jet(const pat::io_v1::Jet&)", "Jet(const reco::Jet&)",
     "addSubjets(const pat::JetPtrCollection&,const string&)", "operator=(const pat::io_v1::Jet&)",
-    "setGenJetRef(const edm::FwdRef<reco::GenJetCollection>&)", "updateFwdGenJetFwdRef(edm::Ref<reco::GenJetCollection>)",
+    "updateFwdGenJetFwdRef(edm::Ref<reco::GenJetCollection>)",
 }
 for i in sorted(set(infos) - EXPECTED_SWAPS):
     failures.append("unexpected signature difference: " + i)
@@ -118,5 +176,5 @@ if failures:
     for f in failures:
         print("  " + f)
     sys.exit(1)
-print("\nPASS: every public name of pat::Jet and PATObject<reco::Jet> exists on pat::GenJet "
-      "(scouting constructor absent)")
+print("\nPASS: removed members absent, every other public name of pat::Jet and PATObject<reco::Jet> "
+      "exists on pat::GenJet, genCandidates members present (scouting constructor absent)")

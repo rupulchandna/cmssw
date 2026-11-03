@@ -30,10 +30,8 @@ def dump(j, idx, edm=True):
                f"neEm={j.neutralEmEnergy():.3f} mu={j.muonEnergy():.3f}")
     out.append(f"  multiplicities: ch={j.chargedMultiplicity()} ne={j.neutralMultiplicity()} "
                f"chH={j.chargedHadronMultiplicity()} neH={j.neutralHadronMultiplicity()} mu={j.muonMultiplicity()}")
-    out.append(f"  flavour: parton={j.partonFlavour()} hadron={j.hadronFlavour()} "
-               f"nB={j.jetFlavourInfo().getbHadrons().size()} nC={j.jetFlavourInfo().getcHadrons().size()}")
     out.append(f"  neutral: jecFactor(Uncorrected)={j.jecFactor('Uncorrected')} "
-               f"bDisc(x)={j.bDiscriminator('x')} HFHadronEnergy={j.HFHadronEnergy()} towersArea={j.towersArea()}")
+               f"HFHadronMultiplicity={j.HFHadronMultiplicity()}")
     sub = [f"{l}:{[(p.id().id(), p.key()) for p in j.subjets(l)]}" for l in j.subjetCollectionNames()]
     # groomedMass dereferences the subjet Ptrs, which needs the event (EDM file only)
     gm = f"{j.groomedMass('SoftDropPuppi'):.3f}" if edm or j.nSubjetCollections() == 0 else "needs event"
